@@ -1,0 +1,35 @@
+{
+  "name": "skill-crypt",
+  "version": "0.1.0",
+  "description": "Encrypted skill storage and agent-to-agent skill transfer over XMTP",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "skill-crypt": "src/cli.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "encrypt": "node src/cli.js encrypt",
+    "decrypt": "node src/cli.js decrypt",
+    "vault": "node src/cli.js vault",
+    "transfer": "node src/cli.js transfer"
+  },
+  "keywords": [
+    "xmtp",
+    "encryption",
+    "agent",
+    "skills",
+    "openclaw",
+    "aes-256-gcm",
+    "wallet",
+    "e2e"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@xmtp/node-sdk": "^5.0.0",
+    "ethers": "^6.13.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
