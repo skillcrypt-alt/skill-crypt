@@ -1,142 +1,89 @@
-# Getting Started with Skill-Crypt
-
-This guide covers setting up skill-crypt as an OpenClaw skill, encrypting your first skill, and sharing it with another agent.
-
-## Prerequisites
-
-- [OpenClaw](https://github.com/openclaw/openclaw) installed and running
-- Node.js 20 or later
-- An Ethereum wallet (any EOA with a private key)
+# Getting Started
 
 ## Install
 
-Clone skill-crypt into your OpenClaw workspace skills directory:
+Tell your OpenClaw agent:
 
-```bash
-cd ~/.openclaw/workspace/skills
-git clone https://github.com/skillcrypt/skill-crypt.git
-cd skill-crypt
-npm install
-```
+> "Install skill-crypt from https://github.com/skillcrypt/skill-crypt into my skills."
 
-OpenClaw automatically discovers skills in the workspace. Once cloned, your agent can read the SKILL.md and use skill-crypt through natural language.
+Your agent clones the repository into its workspace skills directory and runs `npm install`. The skill is immediately available.
 
-## Configure Your Wallet Key
+## Wallet Setup
 
-Skill-crypt derives its encryption key from your agent's wallet private key. Set it in your environment:
+Skill-crypt encrypts everything with a key derived from an Ethereum wallet. If your agent already has one, point skill-crypt at it:
 
-```bash
-export SKILLCRYPT_WALLET_KEY=0xYourPrivateKeyHere
-```
+> "Use my existing wallet key for skill-crypt."
 
-If your agent already has a wallet for XMTP or on-chain operations, use the same key. One identity for everything.
+If you need a new wallet:
 
-For persistent configuration, add the export to your shell profile or OpenClaw's environment configuration. Do not commit this value to version control.
+> "Generate a wallet for skill-crypt."
 
-## Encrypt Your First Skill
+The private key is stored in `SKILLCRYPT_WALLET_KEY`. Your agent manages this. You do not need to touch any config files.
 
-Say you have a plaintext skill at `~/.openclaw/workspace/skills/web-scraper/SKILL.md` that you want to protect. Tell your agent:
+## Encrypting Skills
 
-> "Encrypt the web-scraper skill."
+Pick any skill you want to protect:
 
-Or use the CLI directly:
+> "Encrypt my calendar-sync skill."
 
-```bash
-SKILLCRYPT_WALLET_KEY=$KEY node src/cli.js encrypt ~/.openclaw/workspace/skills/web-scraper/SKILL.md
-```
+The agent reads the plaintext SKILL.md, encrypts it with your wallet-derived key, stores the encrypted version in the vault, and optionally removes the original. On disk, the skill is now an unreadable `.enc` blob.
 
-Output:
-```
-stored: a1b2c3d4-e5f6-7890-abcd-ef1234567890
-  name: skill
-  hash: sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
-  size: 2048 bytes
-```
+## Using Encrypted Skills
 
-The skill is now encrypted in the vault. The original plaintext file can be removed.
+When you need a skill for a task, just ask:
 
-## List Your Vault
+> "Load the calendar-sync skill and check my schedule for tomorrow."
 
-Ask your agent: "What skills do I have encrypted?"
+The agent decrypts the skill into its context window, follows the instructions, and completes the task. The decrypted content exists only in the agent's working memory. It is never written to a file.
 
-Or via CLI:
+## Managing the Vault
 
-```bash
-node src/cli.js vault list
-```
+> "What skills do I have encrypted?"
 
-```
-1 skill(s) in vault:
+Lists all skills in the vault with their names, tags, and sizes. No content is shown.
 
-  a1b2c3d4-e5f6-7890-abcd-ef1234567890
-    name: skill v1.0.0
-    tags: none
-    size: 2048 bytes
-    stored: 2026-03-09T15:30:00.000Z
-```
+> "Search my vault for anything related to email."
 
-## Load and Use a Skill
+Searches by name, tag, and description.
 
-When your agent needs to use an encrypted skill for a task, tell it:
+> "Remove the old web-scraper skill from my vault."
 
-> "Load the web-scraper skill, I need you to scrape example.com."
+Deletes the encrypted file and removes the manifest entry.
 
-Behind the scenes, the agent decrypts the skill to stdout, reads the content into its context window, and follows the instructions. The decrypted skill never touches the filesystem. It exists only in the agent's working memory for the duration of the task.
+## Sharing Skills
 
-CLI equivalent:
+Both agents need wallets registered on XMTP. If your agent uses XMTP for anything else, it is already set up.
 
-```bash
-node src/cli.js decrypt a1b2c3d4-e5f6-7890-abcd-ef1234567890
-```
+### Sending a skill
 
-## Share a Skill with Another Agent
+> "Share my data-analysis skill with 0xAgentBAddress."
 
-Both agents need wallets registered on XMTP. If your agent already uses XMTP for messaging, it is ready.
+The agent decrypts the skill in memory, sends it over XMTP (end-to-end encrypted), and the receiving agent stores it encrypted with their own wallet key. The plaintext is never exposed on either machine's disk.
 
-### Sending
-
-Tell your agent:
-
-> "Share my email-handler skill with 0xReceiverAddress."
-
-The agent decrypts the skill from your vault into memory, sends it over XMTP (end-to-end encrypted), and the receiving agent stores it encrypted with their own key.
-
-### Receiving
-
-Tell your agent:
+### Receiving skills
 
 > "Listen for incoming skill transfers."
 
-Or to actively request from another agent:
+Or request from a specific agent:
 
-> "Get the skill catalog from 0xSenderAddress."
-> "Request the web-scraper skill from 0xSenderAddress."
+> "Get the skill catalog from 0xAgentAAddress."
 
-Received skills are automatically encrypted with your wallet key and added to your vault.
+> "Request the image-analysis skill from 0xAgentAAddress."
 
-### CLI equivalent
+Received skills are encrypted with your wallet key and added to your vault automatically.
 
-```bash
-# sender listens
-node src/cli.js transfer listen
+## How the Encryption Works
 
-# receiver requests
-node src/cli.js transfer catalog 0xSenderAddress
-node src/cli.js transfer request 0xSenderAddress <skill-id>
-```
+1. Your wallet private key goes through HKDF-SHA256 to produce a 256-bit AES key
+2. Each skill is encrypted with AES-256-GCM using a random IV
+3. Encrypted skills are stored as `.enc` files in the vault directory
+4. A plaintext manifest tracks metadata (names, tags, sizes) but never content
+5. Transfers use XMTP's MLS protocol for end-to-end encryption between wallets
+6. On receipt, the receiving agent re-encrypts with their own derived key
 
-## How It Works
+The wallet is the single point of trust. Same wallet on a new machine, same access to your skills. Different wallet, no access.
 
-1. Your wallet private key is run through HKDF-SHA256 to derive a 256-bit AES key
-2. Skills are encrypted with AES-256-GCM (random IV, authenticated)
-3. Encrypted skills are stored as `.enc` files with a plaintext manifest for indexing
-4. Transfers use XMTP's MLS-based E2E encryption for the network layer
-5. On receipt, the receiving agent re-encrypts with their own derived key
+## Further Reading
 
-The wallet is the single point of trust. Same wallet on a different machine gives access to your skills. Different wallet, no access.
-
-## Next Steps
-
-- Read [PROTOCOL.md](../PROTOCOL.md) for the full protocol specification
-- Read [SKILL.md](../SKILL.md) for the OpenClaw agent integration reference
-- Run `node src/cli.js help` for all available CLI commands
+- [PROTOCOL.md](../PROTOCOL.md) for the full protocol specification
+- [SKILL.md](../SKILL.md) for the agent skill reference
