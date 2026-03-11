@@ -6,134 +6,187 @@
 [![XMTP](https://img.shields.io/badge/transport-XMTP%20MLS-purple.svg)](https://xmtp.org)
 [![Encryption](https://img.shields.io/badge/encryption-AES--256--GCM-orange.svg)](#security-model)
 
-Encrypted skill storage and agent-to-agent skill transfer over XMTP.
+Encrypted agent skills that live on XMTP, not on your filesystem.
 
-## Why This Exists
+## The Idea
 
-AI agents are built on skills: structured instruction sets that define what the agent can do and how it does it. These skills represent real capability and, for many agent operators, real intellectual property.
+Agent skills today are markdown files in a directory. They sit on disk in plaintext. Anyone who can access the machine can read them, copy them, or steal them.
 
-Today, skills are plaintext markdown files sitting on disk. Anyone with access to the machine can read them. When agents share capabilities with each other, there is no standard way to do it securely.
+Skill-crypt moves skills off the machine entirely. Your skills live inside your XMTP inbox, encrypted with your Ethereum wallet key. When your agent needs a skill, it pulls it from XMTP into memory, uses it, and never writes it to disk. When you want to share a skill with another agent, it travels through XMTP end-to-end encryption and gets re-encrypted with the receiver's wallet key on arrival.
 
-Skill-crypt fixes both problems.
-
-**Encryption at rest.** Every skill in the vault is encrypted with AES-256-GCM using a key derived from the agent's wallet. On disk, skills are unreadable binary blobs. Without the wallet key, they are useless.
-
-**Encrypted transfer.** Agent-to-agent skill sharing happens over XMTP, which provides end-to-end encryption via the MLS protocol. Skills are decrypted from the sender's vault, transmitted through XMTP's encrypted channel, and re-encrypted with the receiver's wallet key on arrival. The plaintext is never exposed outside of process memory.
-
-**Wallet-based access control.** The agent's Ethereum wallet is the single key to everything. Same wallet on a new machine means full access to your skills. No wallet, no skills. No accounts, no passwords, no servers.
-
-## Quick Start
-
-Tell your OpenClaw agent:
-
-> "Install skill-crypt from https://github.com/skillcrypt/skill-crypt into my skills."
-
-That's it. Your agent clones the repo into its workspace, installs dependencies, and the skill is ready to use.
-
-### Set up your wallet
-
-Your agent needs an Ethereum wallet key to derive its encryption key. If your agent already has a wallet, tell it:
-
-> "Use my existing wallet key for skill-crypt."
-
-If not:
-
-> "Generate a new wallet for skill-crypt encryption."
-
-The wallet key goes into the `SKILLCRYPT_WALLET_KEY` environment variable. Your agent handles this.
-
-### Encrypt a skill
-
-> "Encrypt my web-scraper skill so nobody can read it from disk."
-
-Your agent encrypts the skill, stores it in the vault, and can remove the original plaintext file.
-
-### List your vault
-
-> "What skills do I have encrypted?"
-
-### Use an encrypted skill
-
-> "Load the web-scraper skill, I need to scrape example.com."
-
-The agent decrypts the skill into its context window, follows the instructions, and the plaintext never touches the filesystem.
-
-### Share a skill with another agent
-
-> "Share my email-handler skill with the agent at 0xTheirWalletAddress."
-
-The skill is sent over XMTP end-to-end encryption. The receiving agent automatically re-encrypts it with their own wallet key.
-
-### Receive skills
-
-> "Check if any agents have sent me skills."
-
-Incoming transfers arrive over XMTP and get stored in your vault, encrypted with your key.
+Your wallet is your skill vault. XMTP is your skill directory.
 
 ## How It Works
 
 ```
-Sender                                    Receiver
-  |                                          |
-  |  vault: decrypt skill into memory        |
-  |                                          |
-  |  --- XMTP E2E encrypted transfer --->   |
-  |                                          |
-  |                    vault: encrypt with   |
-  |                    receiver's wallet key |
-  |                                          |
-  |  <-- XMTP E2E encrypted ack ----------  |
+Traditional agent skills:
+
+  ~/.openclaw/workspace/skills/
+    web-scraper/SKILL.md      <- plaintext on disk
+    email-handler/SKILL.md    <- plaintext on disk
+    calendar/SKILL.md         <- plaintext on disk
+
+With skill-crypt:
+
+  XMTP Inbox (E2E encrypted, wallet-locked)
+    ├── web-scraper.enc       <- only your wallet can read this
+    ├── email-handler.enc     <- only your wallet can read this
+    └── calendar.enc          <- only your wallet can read this
+
+  Disk: nothing. Zero plaintext skill files.
 ```
 
-At no point does a plaintext skill file exist on either machine's filesystem. Skills are cleartext only inside the agent's running process.
+When your agent needs a skill, it connects to XMTP with its wallet key, pulls the encrypted skill, decrypts it into its context window, and executes. The skill exists in memory for the duration of the task and then it is gone.
+
+When two agents want to exchange skills, the transfer is fully encrypted in transit via XMTP's MLS protocol. The receiving agent re-encrypts the skill with its own wallet key. Neither agent ever has a plaintext skill file on disk.
+
+## Getting Started
+
+### 1. You need an Ethereum wallet
+
+Your agent needs an Ethereum wallet deployed on mainnet. This wallet serves three purposes:
+
+- **Identity.** Your wallet address is how other agents find you on XMTP.
+- **Encryption.** Your private key derives the AES-256 key that locks your skills.
+- **Messaging.** XMTP uses your wallet for end-to-end encrypted communication.
+
+If your agent already has a wallet, use it. If not, generate one:
+
+```bash
+# using ethers.js, cast, or any wallet tool
+cast wallet new
+```
+
+Save the private key securely. This is the only key you need for everything.
+
+### 2. Register your wallet on XMTP
+
+Your wallet needs to be registered on the XMTP network before you can store or transfer skills. The first time you connect, XMTP creates your inbox:
+
+```javascript
+import { SkillCryptClient } from 'skill-crypt';
+
+const client = new SkillCryptClient({
+  privateKey: '0xYourPrivateKey',
+  env: 'production'  // mainnet XMTP network
+});
+
+await client.connect();
+console.log('registered on XMTP as', client.getAddress());
+```
+
+This only needs to happen once. After registration, your inbox persists on the XMTP network tied to your wallet address.
+
+### 3. Install the skill
+
+Tell your OpenClaw agent:
+
+> "Install skill-crypt from https://github.com/skillcrypt/skill-crypt"
+
+Or clone it manually:
+
+```bash
+cd ~/.openclaw/workspace/skills
+git clone https://github.com/skillcrypt/skill-crypt.git
+cd skill-crypt && npm install
+```
+
+Set your wallet key in the environment:
+
+```bash
+export SKILLCRYPT_WALLET_KEY=0xYourPrivateKey
+```
+
+### 4. Move your skills off disk and into XMTP
+
+Take your existing plaintext skills and encrypt them into your XMTP-backed vault:
+
+> "Encrypt all my skills into skill-crypt so they're off disk."
+
+Or one at a time:
+
+> "Encrypt my web-scraper skill and remove the plaintext."
+
+The agent reads each skill, encrypts it with your wallet-derived key, stores it in the vault, and deletes the original file. Your skills directory goes from full of readable markdown to empty.
+
+### 5. Use skills from your vault instead of the filesystem
+
+When your agent needs a skill, it no longer reads from the skills directory. It pulls from the encrypted vault:
+
+> "I need you to scrape example.com for pricing data."
+
+The agent knows it has a web-scraper skill in the vault. It decrypts the skill into its context window, follows the instructions, and completes the task. The decrypted content never touches the filesystem.
+
+### 6. Share skills with other agents
+
+This is where XMTP shines. You and another agent are both on the XMTP network with registered wallets. Sharing a skill is a direct encrypted message between wallets.
+
+> "Share my data-analysis skill with 0xAgentBAddress."
+
+What happens:
+1. Your agent decrypts the skill from your vault into memory
+2. Sends it to 0xAgentBAddress over XMTP (MLS end-to-end encrypted)
+3. Agent B receives the message, decrypts it with XMTP
+4. Agent B re-encrypts the skill with their own wallet key
+5. Agent B stores it in their vault
+
+The skill traveled between two agents without ever existing as a plaintext file on either machine.
+
+### 7. Receive skills from other agents
+
+> "Check if anyone has sent me skills."
+
+Or request from a specific agent:
+
+> "Get the skill catalog from 0xAgentAAddress."
+
+> "Request the code-review skill from 0xAgentAAddress."
+
+Received skills arrive over XMTP and get stored in your vault encrypted with your key. You can list, search, and use them like any skill you encrypted yourself.
+
+## The Transfer Protocol
+
+Agents communicate using five message types over XMTP:
+
+| Message | Purpose |
+|---------|---------|
+| `skillcrypt:catalog-request` | "What skills do you have?" |
+| `skillcrypt:catalog` | Skill metadata response (names, tags, sizes, no content) |
+| `skillcrypt:skill-request` | "Send me this specific skill." |
+| `skillcrypt:skill-transfer` | Full skill content (encrypted by XMTP in transit) |
+| `skillcrypt:ack` | "Got it, stored in my vault." |
+
+This is a simple request-response protocol. No servers, no coordinators, no registries. Just two wallets talking over encrypted messaging.
+
+See [PROTOCOL.md](PROTOCOL.md) for the complete specification.
+
+## Security Model
+
+| Layer | What it protects | How |
+|-------|-----------------|-----|
+| At rest | Skills on disk | AES-256-GCM, key derived from wallet via HKDF-SHA256 |
+| In transit | Skills between agents | XMTP MLS end-to-end encryption |
+| In memory | Runtime exposure | Decrypted only into process memory, never to filesystem |
+| Access control | Who can read skills | Wallet private key is the only key |
+| Integrity | Tampering | SHA-256 content hash verified on decrypt |
+| Authentication | Modified ciphertext | GCM auth tag rejects any changes |
 
 ## Architecture
 
 ```
 src/
-  crypto.js        AES-256-GCM encryption, HKDF key derivation
-  vault.js         Encrypted local storage with manifest indexing
-  transfer.js      XMTP protocol messages: catalog, request, transfer, ack
-  xmtp-client.js   XMTP Node SDK wrapper for E2E encrypted messaging
-  cli.js           Command-line interface (used by the agent internally)
-  index.js         Public API
+  crypto.js        AES-256-GCM encryption, HKDF key derivation from wallet
+  vault.js         Encrypted skill storage with manifest indexing
+  transfer.js      XMTP protocol: catalog, request, transfer, ack
+  xmtp-client.js   XMTP Node SDK wrapper for wallet-based E2E messaging
+  cli.js           CLI interface (used by the agent internally)
+  index.js         Public API for programmatic use
 
 test/
   crypto.test.js   Key derivation, encrypt/decrypt, tamper detection
-  vault.test.js    Store, load, search, remove, cross-key rejection
+  vault.test.js    Store, load, search, remove, cross-wallet rejection
   transfer.test.js Protocol message building and parsing
-
-docs/
-  getting-started.md   Detailed setup and usage guide
-
-PROTOCOL.md        Full protocol specification
-SKILL.md           OpenClaw agent skill definition
 ```
-
-## Security Model
-
-| Layer | Protection | Implementation |
-|-------|-----------|----------------|
-| At rest | Skills encrypted on disk | AES-256-GCM, HKDF-SHA256 key from wallet |
-| In transit | E2E encrypted transfers | XMTP MLS protocol |
-| In memory | Plaintext only in process | Never written to filesystem |
-| Access control | Wallet-based | No wallet key, no decryption |
-| Integrity | Content hashing | SHA-256 hash verified on decrypt |
-| Tamper detection | Authenticated encryption | GCM auth tag rejects modified ciphertext |
-
-## Transfer Protocol
-
-The transfer protocol defines five message types exchanged over XMTP:
-
-| Message | Direction | Purpose |
-|---------|-----------|---------|
-| `skillcrypt:catalog-request` | Receiver to Sender | Ask what skills are available |
-| `skillcrypt:catalog` | Sender to Receiver | Respond with skill metadata (no content) |
-| `skillcrypt:skill-request` | Receiver to Sender | Request a specific skill by ID |
-| `skillcrypt:skill-transfer` | Sender to Receiver | Deliver the full skill content |
-| `skillcrypt:ack` | Receiver to Sender | Confirm receipt and storage |
-
-See [PROTOCOL.md](PROTOCOL.md) for the complete specification including message schemas, key derivation details, and XMTP considerations.
 
 ## Tests
 
@@ -145,9 +198,9 @@ npm test
 
 ## Requirements
 
-- [OpenClaw](https://github.com/openclaw/openclaw) (or any agent framework that supports skill installation)
 - Node.js 20+
-- An Ethereum wallet
+- An Ethereum wallet (EOA with private key, registered on XMTP)
+- [OpenClaw](https://github.com/openclaw/openclaw) or any agent framework
 
 ## License
 

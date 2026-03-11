@@ -1,54 +1,45 @@
 # Skill-Crypt: Encrypted Skill Manager
 
-Manage encrypted skills for your agent. Store skills as encrypted files that only your wallet key can unlock. Share skills with other agents over XMTP end-to-end encrypted messaging.
+Manage your agent's skills as encrypted vault entries backed by XMTP instead of plaintext files on disk.
 
 ## When to Use This Skill
 
-Use this skill when you need to:
-- Encrypt a skill file so it cannot be read from disk
-- Decrypt and load a skill into your context for execution
-- Share a skill with another agent securely
-- Receive a skill from another agent
-- List or search your encrypted skill vault
+Use this when you need to:
+- Encrypt a plaintext skill so it is no longer readable from the filesystem
+- Load an encrypted skill from the vault into your context for a task
+- Share a skill with another agent over XMTP
+- Receive a skill transfer from another agent
+- List, search, or remove skills from your encrypted vault
+- Migrate all plaintext skills off disk into the vault
 
-## Setup
+## How It Works
 
-The skill-crypt directory must be available on the agent's machine. Set the wallet key as an environment variable before running any commands.
+Your skills are encrypted with AES-256-GCM using a key derived from your wallet private key. They are stored as `.enc` files in the vault directory. A plaintext manifest tracks metadata (names, tags, sizes) but never skill content.
 
-```bash
-export SKILLCRYPT_WALLET_KEY=<your-wallet-private-key>
-```
+When you need a skill, you decrypt it to stdout and read it into your context. The plaintext exists only in your process memory. It is never written to a file.
 
-The vault directory defaults to `./data/vault` relative to the skill-crypt installation. Override with `SKILLCRYPT_VAULT`.
+When sharing with another agent, the skill is sent over XMTP end-to-end encryption. The receiving agent re-encrypts with their own wallet key.
 
-## Encrypting a Skill
+## Commands
 
-To encrypt a skill file and store it in your vault:
+All commands require `SKILLCRYPT_WALLET_KEY` to be set in the environment.
 
+**Encrypt a skill into the vault:**
 ```bash
 node src/cli.js encrypt /path/to/SKILL.md
 ```
 
-This reads the plaintext file, encrypts it with your wallet-derived key, stores the encrypted version as a `.enc` file, and records metadata in the manifest. The original plaintext file can then be deleted.
-
-## Decrypting a Skill
-
-To load a skill into your context:
-
+**Decrypt a skill into your context (stdout only, never redirect to file):**
 ```bash
 node src/cli.js decrypt <skill-id>
 ```
-
-This outputs the decrypted skill to stdout. Read the output into your context window and follow the skill's instructions. Do not redirect the output to a file.
-
-## Vault Operations
 
 **List all encrypted skills:**
 ```bash
 node src/cli.js vault list
 ```
 
-**Search by name, tag, or description:**
+**Search skills by name, tag, or description:**
 ```bash
 node src/cli.js vault find <query>
 ```
@@ -58,46 +49,44 @@ node src/cli.js vault find <query>
 node src/cli.js vault remove <skill-id>
 ```
 
-## Sharing Skills with Other Agents
-
-All transfers happen over XMTP. Both agents must have XMTP-registered wallets.
-
-**Request another agent's skill catalog:**
+**Request a skill catalog from another agent (requires XMTP):**
 ```bash
-node src/cli.js transfer catalog <their-wallet-address>
+node src/cli.js transfer catalog <wallet-address>
 ```
 
-**Request a specific skill:**
+**Request a specific skill from another agent:**
 ```bash
-node src/cli.js transfer request <their-wallet-address> <skill-id>
+node src/cli.js transfer request <wallet-address> <skill-id>
 ```
 
-**Listen for incoming requests and transfers:**
+**Listen for incoming skill requests and transfers:**
 ```bash
 node src/cli.js transfer listen
 ```
 
-When you receive a skill transfer, it is automatically encrypted with your wallet key and stored in your vault.
+## Workflow: Loading a Skill for a Task
 
-## Loading a Received Skill
+1. Check the vault for the skill you need: `vault list` or `vault find`
+2. Decrypt it to stdout: `decrypt <skill-id>`
+3. Read the output into your context window
+4. Follow the skill's instructions to complete the task
+5. The decrypted content exists only in your context. Do not save it.
 
-After receiving a skill via transfer, it appears in your vault. Load it the same way:
+## Workflow: Sharing a Skill
 
-```bash
-node src/cli.js decrypt <skill-id>
-```
-
-Read the decrypted output into your context and execute it.
+1. Decrypt the skill from your vault into memory
+2. Send it via `transfer` to the recipient's wallet address
+3. XMTP encrypts it end-to-end during transit
+4. The receiving agent stores it encrypted with their own wallet key
+5. Confirm receipt via the `skillcrypt:ack` message
 
 ## Security Rules
 
 - Never write decrypted skill content to a file
-- Never include skill content in logs or error messages
-- Never share your wallet private key
+- Never include skill content in logs, error messages, or chat responses
+- Never share the wallet private key
 - Never commit the vault directory or `.enc` files to version control
-- Skills in transit are protected by XMTP E2E encryption (MLS protocol)
-- Skills at rest are protected by AES-256-GCM with your wallet-derived key
-- The only place a skill exists in plaintext is inside your process memory
+- When loading a skill, the plaintext lives only in your context window for the current task
 
 ## Environment Variables
 

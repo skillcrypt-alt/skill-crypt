@@ -1,87 +1,69 @@
 # Getting Started
 
-## Install
+## Prerequisites
 
-Tell your OpenClaw agent:
+- An Ethereum wallet with a private key
+- The wallet registered on the XMTP network (happens automatically on first connect)
+- [OpenClaw](https://github.com/openclaw/openclaw) running
 
-> "Install skill-crypt from https://github.com/skillcrypt/skill-crypt into my skills."
+## What You Need to Know
 
-Your agent clones the repository into its workspace skills directory and runs `npm install`. The skill is immediately available.
+Skill-crypt replaces your plaintext skills directory with an encrypted vault backed by XMTP. Instead of skills living as readable files on your machine, they live as encrypted blobs that only your wallet key can open. When your agent needs a skill, it pulls it from the vault into memory, uses it, and the plaintext is gone when the task is done.
+
+Sharing skills with other agents works the same way. Both agents have wallets on XMTP. The skill travels through XMTP's end-to-end encrypted channel. The receiving agent re-encrypts with their own key. No plaintext ever hits disk on either side.
 
 ## Wallet Setup
 
-Skill-crypt encrypts everything with a key derived from an Ethereum wallet. If your agent already has one, point skill-crypt at it:
+Your Ethereum wallet is your identity, your encryption key, and your XMTP address all in one. If you already have a wallet, use it. If not:
 
-> "Use my existing wallet key for skill-crypt."
+```bash
+cast wallet new
+```
 
-If you need a new wallet:
+Your wallet needs to be on mainnet. XMTP production network uses mainnet wallet addresses for identity. The wallet does not need ETH in it (XMTP messaging is free), but it does need to be a real mainnet EOA.
 
-> "Generate a wallet for skill-crypt."
+## Install
 
-The private key is stored in `SKILLCRYPT_WALLET_KEY`. Your agent manages this. You do not need to touch any config files.
+> "Install skill-crypt from https://github.com/skillcrypt/skill-crypt"
 
-## Encrypting Skills
+Set the wallet key:
 
-Pick any skill you want to protect:
+```bash
+export SKILLCRYPT_WALLET_KEY=0xYourPrivateKey
+```
 
-> "Encrypt my calendar-sync skill."
+## Register on XMTP
 
-The agent reads the plaintext SKILL.md, encrypts it with your wallet-derived key, stores the encrypted version in the vault, and optionally removes the original. On disk, the skill is now an unreadable `.enc` blob.
+The first time skill-crypt connects, it registers your wallet on the XMTP network and creates your encrypted inbox. This is automatic. After registration, your inbox persists on the network and you can send and receive skill transfers from any machine using the same wallet.
 
-## Using Encrypted Skills
+## Migrate Skills Off Disk
 
-When you need a skill for a task, just ask:
+Take your existing skills and move them into the encrypted vault:
 
-> "Load the calendar-sync skill and check my schedule for tomorrow."
+> "Encrypt all my plaintext skills and remove the originals."
 
-The agent decrypts the skill into its context window, follows the instructions, and completes the task. The decrypted content exists only in the agent's working memory. It is never written to a file.
+After migration, your skills directory is empty. Your skills live in the vault as `.enc` files that are unreadable without your wallet key. The manifest (a JSON index of skill names, tags, and sizes) remains readable so your agent can list and search without decrypting everything.
 
-## Managing the Vault
+## Daily Use
 
-> "What skills do I have encrypted?"
+You do not interact with skill-crypt directly. Your agent handles everything.
 
-Lists all skills in the vault with their names, tags, and sizes. No content is shown.
+**Need a skill for a task?** Just describe the task. If the agent has the right skill in its vault, it decrypts and loads it automatically.
 
-> "Search my vault for anything related to email."
+**Want to send a skill to another agent?** Give the wallet address. The agent handles the XMTP transfer.
 
-Searches by name, tag, and description.
+**Want to see what is in your vault?** Ask. The agent reads the manifest and tells you.
 
-> "Remove the old web-scraper skill from my vault."
+## How Transfers Work
 
-Deletes the encrypted file and removes the manifest entry.
+1. You tell your agent to share a skill with `0xReceiverAddress`
+2. Your agent decrypts the skill from vault into memory
+3. Your agent sends it to the receiver over XMTP (MLS end-to-end encrypted)
+4. The receiver's agent gets the message, decrypts via XMTP
+5. The receiver's agent re-encrypts with their own wallet-derived key
+6. The skill is now in the receiver's vault, locked to their wallet
 
-## Sharing Skills
-
-Both agents need wallets registered on XMTP. If your agent uses XMTP for anything else, it is already set up.
-
-### Sending a skill
-
-> "Share my data-analysis skill with 0xAgentBAddress."
-
-The agent decrypts the skill in memory, sends it over XMTP (end-to-end encrypted), and the receiving agent stores it encrypted with their own wallet key. The plaintext is never exposed on either machine's disk.
-
-### Receiving skills
-
-> "Listen for incoming skill transfers."
-
-Or request from a specific agent:
-
-> "Get the skill catalog from 0xAgentAAddress."
-
-> "Request the image-analysis skill from 0xAgentAAddress."
-
-Received skills are encrypted with your wallet key and added to your vault automatically.
-
-## How the Encryption Works
-
-1. Your wallet private key goes through HKDF-SHA256 to produce a 256-bit AES key
-2. Each skill is encrypted with AES-256-GCM using a random IV
-3. Encrypted skills are stored as `.enc` files in the vault directory
-4. A plaintext manifest tracks metadata (names, tags, sizes) but never content
-5. Transfers use XMTP's MLS protocol for end-to-end encryption between wallets
-6. On receipt, the receiving agent re-encrypts with their own derived key
-
-The wallet is the single point of trust. Same wallet on a new machine, same access to your skills. Different wallet, no access.
+The skill was never a plaintext file on either machine. It existed in cleartext only inside each agent's process memory during the transfer.
 
 ## Further Reading
 
