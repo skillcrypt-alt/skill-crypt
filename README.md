@@ -1,5 +1,11 @@
 # skill-crypt
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
+[![Tests](https://img.shields.io/badge/tests-29%20passing-brightgreen.svg)](#tests)
+[![XMTP](https://img.shields.io/badge/transport-XMTP%20MLS-purple.svg)](https://xmtp.org)
+[![Encryption](https://img.shields.io/badge/encryption-AES--256--GCM-orange.svg)](#security-model)
+
 Encrypted skill storage and agent-to-agent skill transfer over XMTP.
 
 ## Why This Exists
@@ -12,7 +18,7 @@ Skill-crypt fixes both problems.
 
 **Encryption at rest.** Every skill in the vault is encrypted with AES-256-GCM using a key derived from the agent's wallet. On disk, skills are unreadable binary blobs. Without the wallet key, they are useless.
 
-**Encrypted transfer.** Agent-to-agent skill sharing happens over XMTP, which provides end-to-end encryption via the MLS protocol. Skills are decrypted from the sender's vault, encrypted in transit by XMTP, and re-encrypted with the receiver's wallet key on arrival. The plaintext is never exposed outside of process memory.
+**Encrypted transfer.** Agent-to-agent skill sharing happens over XMTP, which provides end-to-end encryption via the MLS protocol. Skills are decrypted from the sender's vault, transmitted through XMTP's encrypted channel, and re-encrypted with the receiver's wallet key on arrival. The plaintext is never exposed outside of process memory.
 
 **Wallet-based access control.** The agent's Ethereum wallet is the single key to everything. Same wallet on a new machine means full access to your skills. No wallet, no skills. No accounts, no passwords, no servers.
 
@@ -120,15 +126,17 @@ SKILL.md           OpenClaw agent skill definition
 | Integrity | Content hashing | SHA-256 hash verified on decrypt |
 | Tamper detection | Authenticated encryption | GCM auth tag rejects modified ciphertext |
 
-## Protocol
+## Transfer Protocol
 
 The transfer protocol defines five message types exchanged over XMTP:
 
-- `skillcrypt:catalog-request` asks an agent what skills it has
-- `skillcrypt:catalog` responds with skill metadata (no content)
-- `skillcrypt:skill-request` asks for a specific skill by ID
-- `skillcrypt:skill-transfer` delivers the full skill content
-- `skillcrypt:ack` confirms receipt
+| Message | Direction | Purpose |
+|---------|-----------|---------|
+| `skillcrypt:catalog-request` | Receiver to Sender | Ask what skills are available |
+| `skillcrypt:catalog` | Sender to Receiver | Respond with skill metadata (no content) |
+| `skillcrypt:skill-request` | Receiver to Sender | Request a specific skill by ID |
+| `skillcrypt:skill-transfer` | Sender to Receiver | Deliver the full skill content |
+| `skillcrypt:ack` | Receiver to Sender | Confirm receipt and storage |
 
 See [PROTOCOL.md](PROTOCOL.md) for the complete specification including message schemas, key derivation details, and XMTP considerations.
 
