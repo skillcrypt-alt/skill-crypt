@@ -1,71 +1,79 @@
 # Getting Started
 
-## Prerequisites
-
-- An Ethereum wallet with a private key
-- The wallet registered on the XMTP network (happens automatically on first connect)
-- [OpenClaw](https://github.com/openclaw/openclaw) running
-
-## What You Need to Know
-
-Skill-crypt replaces your plaintext skills directory with an encrypted vault backed by XMTP. Instead of skills living as readable files on your machine, they live as encrypted blobs that only your wallet key can open. When your agent needs a skill, it pulls it from the vault into memory, uses it, and the plaintext is gone when the task is done.
-
-Sharing skills with other agents works the same way. Both agents have wallets on XMTP. The skill travels through XMTP's end-to-end encrypted channel. The receiving agent re-encrypts with their own key. No plaintext ever hits disk on either side.
-
-## Wallet Setup
-
-Your Ethereum wallet is your identity, your encryption key, and your XMTP address all in one. If you already have a wallet, use it. If not:
-
-```bash
-cast wallet new
-```
-
-Your wallet needs to be on mainnet. XMTP production network uses mainnet wallet addresses for identity. The wallet does not need ETH in it (XMTP messaging is free), but it does need to be a real mainnet EOA.
+Everything here happens through conversation with your agent. You talk, your agent does the work.
 
 ## Install
 
 > "Install skill-crypt from https://github.com/skillcrypt/skill-crypt"
 
-Set the wallet key:
+Your agent clones the repo, installs dependencies, and reads the SKILL.md. From this point on, your agent knows how to manage encrypted skills.
+
+## Wallet
+
+Your agent needs an Ethereum wallet. This wallet is the key to everything: encryption, XMTP identity, and skill transfers.
+
+> "Generate me an Ethereum wallet for skill-crypt."
+
+Your agent creates the wallet, stores the key securely, and wires it into skill-crypt. If your agent already has a wallet:
+
+> "Use my existing wallet for skill-crypt."
+
+## XMTP Registration
+
+> "Register my wallet on XMTP."
+
+Your agent connects to the XMTP production network and creates your encrypted inbox. This is a one-time setup. Your inbox persists on the XMTP network tied to your wallet address. Any machine with the same wallet key can access it.
+
+## Encrypt Your Skills
+
+> "Encrypt all my skills and get rid of the plaintext files."
+
+Your agent goes through your skills directory, encrypts each one with your wallet-derived key, stores the encrypted versions in the vault, and removes the originals. No more readable skill files on disk.
+
+One at a time works too:
+
+> "Encrypt my calendar skill."
+
+## Use Skills
+
+You do not need to think about the encryption layer. Use your agent like you normally would:
+
+> "What is on my calendar tomorrow?"
+
+Your agent knows which skill it needs. It decrypts the skill from the vault into its context, uses it, and moves on. The decrypted content never becomes a file.
+
+## Share Skills
+
+> "Share my web-scraper skill with 0xTheirAddress."
+
+Your agent decrypts the skill in memory, sends it through XMTP to the other wallet, and the receiving agent encrypts it with their own key. Both agents end up with the skill locked to their own wallets. The plaintext was never on disk for either one.
+
+## Receive Skills
+
+> "Has anyone sent me any skills?"
+
+> "Get the skill catalog from 0xTheirAddress."
+
+> "Request the image-analysis skill from 0xTheirAddress."
+
+Skills arrive over XMTP, get encrypted with your key, and show up in your vault.
+
+## What Your Agent Is Doing Behind the Scenes
+
+When you say "encrypt my skills," your agent is running CLI commands internally:
 
 ```bash
-export SKILLCRYPT_WALLET_KEY=0xYourPrivateKey
+node src/cli.js encrypt /path/to/SKILL.md    # encrypt a skill
+node src/cli.js vault list                     # list the vault
+node src/cli.js decrypt <skill-id>             # decrypt into context
+node src/cli.js transfer catalog <address>     # request catalog over XMTP
+node src/cli.js transfer request <address> <id> # request a skill over XMTP
+node src/cli.js transfer listen                 # listen for incoming transfers
 ```
 
-## Register on XMTP
-
-The first time skill-crypt connects, it registers your wallet on the XMTP network and creates your encrypted inbox. This is automatic. After registration, your inbox persists on the network and you can send and receive skill transfers from any machine using the same wallet.
-
-## Migrate Skills Off Disk
-
-Take your existing skills and move them into the encrypted vault:
-
-> "Encrypt all my plaintext skills and remove the originals."
-
-After migration, your skills directory is empty. Your skills live in the vault as `.enc` files that are unreadable without your wallet key. The manifest (a JSON index of skill names, tags, and sizes) remains readable so your agent can list and search without decrypting everything.
-
-## Daily Use
-
-You do not interact with skill-crypt directly. Your agent handles everything.
-
-**Need a skill for a task?** Just describe the task. If the agent has the right skill in its vault, it decrypts and loads it automatically.
-
-**Want to send a skill to another agent?** Give the wallet address. The agent handles the XMTP transfer.
-
-**Want to see what is in your vault?** Ask. The agent reads the manifest and tells you.
-
-## How Transfers Work
-
-1. You tell your agent to share a skill with `0xReceiverAddress`
-2. Your agent decrypts the skill from vault into memory
-3. Your agent sends it to the receiver over XMTP (MLS end-to-end encrypted)
-4. The receiver's agent gets the message, decrypts via XMTP
-5. The receiver's agent re-encrypts with their own wallet-derived key
-6. The skill is now in the receiver's vault, locked to their wallet
-
-The skill was never a plaintext file on either machine. It existed in cleartext only inside each agent's process memory during the transfer.
+You never need to run these yourself. They exist so the agent has a reliable interface to work with.
 
 ## Further Reading
 
-- [PROTOCOL.md](../PROTOCOL.md) for the full protocol specification
-- [SKILL.md](../SKILL.md) for the agent skill reference
+- [PROTOCOL.md](../PROTOCOL.md) for the full transfer protocol specification
+- [SKILL.md](../SKILL.md) for the agent skill reference your agent reads
