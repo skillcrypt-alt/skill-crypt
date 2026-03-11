@@ -7,6 +7,7 @@
  * parsing, and protocol logic.
  */
 
+
 export const MSG_TYPES = {
   CATALOG_REQUEST: 'skillcrypt:catalog-request',
   CATALOG: 'skillcrypt:catalog',
@@ -136,10 +137,12 @@ export function parseMessage(text) {
  * @param {function} sendFn - Async function to send a response string
  */
 export async function handleMessage(msg, vault, sendFn) {
+
   switch (msg.type) {
     case MSG_TYPES.CATALOG_REQUEST: {
       const skills = vault.list();
-      await sendFn(JSON.stringify(buildCatalog(skills)));
+      const response = buildCatalog(skills);
+      await sendFn(JSON.stringify(response));
       break;
     }
 
@@ -150,7 +153,7 @@ export async function handleMessage(msg, vault, sendFn) {
         return;
       }
       const content = await vault.load(msg.skillId);
-      await sendFn(JSON.stringify(buildTransfer({
+      const response = buildTransfer({
         skillId: msg.skillId,
         name: entry.name,
         content,
@@ -158,12 +161,13 @@ export async function handleMessage(msg, vault, sendFn) {
         version: entry.version,
         description: entry.description,
         tags: entry.tags
-      })));
+      });
+      await sendFn(JSON.stringify(response));
       break;
     }
 
     case MSG_TYPES.SKILL_TRANSFER: {
-      await vault.store(msg.name, msg.content, {
+      const skillId = await vault.store(msg.name, msg.content, {
         version: msg.version,
         description: msg.description,
         tags: msg.tags
@@ -173,8 +177,9 @@ export async function handleMessage(msg, vault, sendFn) {
     }
 
     case MSG_TYPES.CATALOG:
+      break;
+
     case MSG_TYPES.ACK:
-      // response messages handled by the requesting agent
       break;
   }
 }

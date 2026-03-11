@@ -22,7 +22,6 @@
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { SkillVault } from './vault.js';
-import { SkillCryptClient } from './xmtp-client.js';
 
 const VAULT_DIR = process.env.SKILLCRYPT_VAULT || './data/vault';
 const WALLET_KEY = process.env.SKILLCRYPT_WALLET_KEY;
@@ -143,6 +142,7 @@ async function main() {
 
     case 'transfer': {
       const sub = args[0];
+      const { SkillCryptClient } = await import('./xmtp-client.js');
       const client = new SkillCryptClient({
         privateKey: WALLET_KEY,
         env: XMTP_ENV

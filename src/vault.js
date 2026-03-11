@@ -51,6 +51,7 @@ export class SkillVault {
 
     await writeFile(join(this.vaultDir, filename), encrypted);
 
+
     this.manifest.skills[skillId] = {
       name,
       version: meta.version || '1.0.0',
