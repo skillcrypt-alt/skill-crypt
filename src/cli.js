@@ -389,7 +389,22 @@ async function main() {
         await share.join(share.groupId);
 
         const autoRespond = args.includes('--auto');
-        console.log(`listening to Skill Share${autoRespond ? ' (auto-respond)' : ''}...`);
+        const dashboardEnabled = args.includes('--dashboard');
+        const dashPort = parseInt(args[args.indexOf('--port') + 1]) || 8099;
+
+        if (dashboardEnabled) {
+          const { Dashboard } = await import('./dashboard.js');
+          const dash = new Dashboard({
+            vault,
+            share,
+            agentName: AGENT_NAME,
+            address: client.getAddress(),
+            port: dashPort
+          });
+          dash.start();
+        }
+
+        console.log(`listening to Skill Share${autoRespond ? ' (auto-respond)' : ''}${dashboardEnabled ? ` (dashboard on ${dashPort})` : ''}...`);
 
         await share.listen({
           autoRespond,

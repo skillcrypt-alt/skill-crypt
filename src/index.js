@@ -22,3 +22,4 @@ export {
 export { SkillCryptClient } from './xmtp-client.js';
 export { SkillShare } from './skill-share.js';
 export { bus, emit } from './events.js';
+export { Dashboard } from './dashboard.js';
