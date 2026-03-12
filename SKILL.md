@@ -37,7 +37,7 @@ offer (metadata only) and request transfers over XMTP DMs.
 Run this once. After that, reuse the same wallet for every session.
 
 ```bash
-cd /home/oryx/skillcrypt-build
+cd skill-crypt
 npm install
 ```
 
