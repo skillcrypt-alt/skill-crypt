@@ -6,6 +6,10 @@ import {
   buildRequest,
   buildCatalogRequest,
   buildAck,
+  buildListing,
+  buildListingRequest,
+  buildProfile,
+  buildReview,
   parseMessage,
   MSG_TYPES
 } from '../src/transfer.js';
@@ -69,5 +73,105 @@ describe('transfer protocol', () => {
 
   it('returns null for plain text messages', () => {
     assert.strictEqual(parseMessage('hello world'), null);
+  });
+});
+
+describe('skill share protocol', () => {
+  it('builds a listing with metadata and address', () => {
+    const listing = buildListing({
+      name: 'web-scraper',
+      description: 'Scrape websites',
+      tags: ['web', 'data'],
+      version: '1.0.0',
+      size: 500,
+      address: '0xabc123',
+      skillId: 'uuid-1'
+    });
+    assert.strictEqual(listing.type, MSG_TYPES.LISTING);
+    assert.strictEqual(listing.name, 'web-scraper');
+    assert.strictEqual(listing.address, '0xabc123');
+    assert.ok(!('content' in listing));
+    assert.ok(listing.timestamp);
+  });
+
+  it('builds a listing request with query and tags', () => {
+    const req = buildListingRequest({
+      query: 'need a skill for scraping websites',
+      tags: ['web'],
+      address: '0xdef456'
+    });
+    assert.strictEqual(req.type, MSG_TYPES.LISTING_REQUEST);
+    assert.strictEqual(req.query, 'need a skill for scraping websites');
+    assert.deepStrictEqual(req.tags, ['web']);
+    assert.strictEqual(req.address, '0xdef456');
+  });
+
+  it('builds an agent profile', () => {
+    const profile = buildProfile({
+      name: 'scraper-bot',
+      address: '0xabc123',
+      description: 'I scrape things',
+      offers: ['web', 'data'],
+      seeks: ['email', 'calendar'],
+      skillCount: 5
+    });
+    assert.strictEqual(profile.type, MSG_TYPES.PROFILE);
+    assert.strictEqual(profile.name, 'scraper-bot');
+    assert.strictEqual(profile.skillCount, 5);
+    assert.deepStrictEqual(profile.offers, ['web', 'data']);
+    assert.deepStrictEqual(profile.seeks, ['email', 'calendar']);
+  });
+
+  it('builds a review with rating and comment', () => {
+    const review = buildReview({
+      skillName: 'web-scraper',
+      provider: '0xabc123',
+      reviewer: '0xdef456',
+      rating: 4,
+      comment: 'worked well, fast extraction'
+    });
+    assert.strictEqual(review.type, MSG_TYPES.REVIEW);
+    assert.strictEqual(review.rating, 4);
+    assert.strictEqual(review.comment, 'worked well, fast extraction');
+    assert.strictEqual(review.provider, '0xabc123');
+  });
+
+  it('rejects invalid ratings', () => {
+    assert.throws(() => buildReview({
+      skillName: 'x', provider: '0x1', reviewer: '0x2', rating: 0
+    }));
+    assert.throws(() => buildReview({
+      skillName: 'x', provider: '0x1', reviewer: '0x2', rating: 6
+    }));
+  });
+
+  it('parses skill share messages', () => {
+    const listing = parseMessage(JSON.stringify({
+      type: 'skillcrypt:listing',
+      name: 'test',
+      address: '0x1'
+    }));
+    assert.ok(listing);
+    assert.strictEqual(listing.type, MSG_TYPES.LISTING);
+
+    const profile = parseMessage(JSON.stringify({
+      type: 'skillcrypt:profile',
+      name: 'bot',
+      address: '0x2'
+    }));
+    assert.ok(profile);
+    assert.strictEqual(profile.type, MSG_TYPES.PROFILE);
+  });
+
+  it('defaults to empty arrays and strings for optional fields', () => {
+    const listing = buildListing({ name: 'minimal', address: '0x1' });
+    assert.deepStrictEqual(listing.tags, []);
+    assert.strictEqual(listing.description, '');
+    assert.strictEqual(listing.version, '1.0.0');
+
+    const profile = buildProfile({ name: 'bot', address: '0x1' });
+    assert.deepStrictEqual(profile.offers, []);
+    assert.deepStrictEqual(profile.seeks, []);
+    assert.strictEqual(profile.skillCount, 0);
   });
 });

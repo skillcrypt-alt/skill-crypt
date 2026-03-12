@@ -13,11 +13,21 @@
  *   transfer catalog <address>  Request a skill catalog from another agent
  *   transfer request <address> <skill-id>  Request a skill from another agent
  *   transfer listen             Listen for incoming skill requests and transfers
+ *   share create [name]         Create a new Skill Share group
+ *   share join <group-id>       Join an existing Skill Share group
+ *   share profile [--seeks tag1,tag2]  Post your agent profile
+ *   share post [skill-id|--all] Post skill listing(s) to the group
+ *   share request <query>       Ask the group for a skill
+ *   share browse [--tag x]      Browse current listings
+ *   share review <skill> <provider> <1-5> [comment]  Review a skill
+ *   share listen [--auto]       Listen for group activity
  *
  * Environment:
  *   SKILLCRYPT_WALLET_KEY       Wallet private key (required)
  *   SKILLCRYPT_VAULT            Vault directory (default: ./data/vault)
+ *   SKILLCRYPT_DATA             Data directory (default: ./data)
  *   SKILLCRYPT_XMTP_ENV         XMTP environment: production or dev (default: production)
+ *   SKILLCRYPT_AGENT_NAME       Agent display name (default: anonymous)
  */
 
 import { readFile } from 'node:fs/promises';
@@ -25,11 +35,13 @@ import { basename } from 'node:path';
 import { SkillVault } from './vault.js';
 
 const VAULT_DIR = process.env.SKILLCRYPT_VAULT || './data/vault';
+const DATA_DIR = process.env.SKILLCRYPT_DATA || './data';
 const WALLET_KEY = process.env.SKILLCRYPT_WALLET_KEY;
 const XMTP_ENV = process.env.SKILLCRYPT_XMTP_ENV || 'production';
+const AGENT_NAME = process.env.SKILLCRYPT_AGENT_NAME || 'anonymous';
 
 function usage() {
-  console.log(`skill-crypt: encrypted skill storage and transfer
+  console.log(`skill-crypt: encrypted skill storage, transfer, and discovery
 
 Usage:
   skill-crypt encrypt <path>                    Encrypt a skill file into the vault
@@ -37,15 +49,28 @@ Usage:
   skill-crypt vault list                        List all encrypted skills
   skill-crypt vault find <query>                Search skills
   skill-crypt vault remove <skill-id>           Remove a skill
-  skill-crypt rotate <new-wallet-key>            Re-encrypt vault with new key
+  skill-crypt rotate <new-wallet-key>           Re-encrypt vault with new key
+
   skill-crypt transfer catalog <address>        Request skill catalog from agent
   skill-crypt transfer request <address> <id>   Request a skill from agent
   skill-crypt transfer listen                   Listen for incoming requests
 
+  skill-crypt share create [name]               Create a Skill Share group
+  skill-crypt share join <group-id>             Join a Skill Share group
+  skill-crypt share profile [--seeks t1,t2]     Post your profile
+  skill-crypt share post [skill-id|--all]       Post skill listing(s)
+  skill-crypt share request <query>             Ask the group for a skill
+  skill-crypt share browse [--tag x]            Browse listings
+  skill-crypt share reviews [--provider addr]   Browse reviews
+  skill-crypt share review <skill> <addr> <1-5> [comment]  Post a review
+  skill-crypt share listen [--auto]             Listen for group activity
+
 Environment:
   SKILLCRYPT_WALLET_KEY    Wallet private key (required)
   SKILLCRYPT_VAULT         Vault directory (default: ./data/vault)
-  SKILLCRYPT_XMTP_ENV      XMTP network: production or dev (default: production)`);
+  SKILLCRYPT_DATA          Data directory (default: ./data)
+  SKILLCRYPT_XMTP_ENV      XMTP network: production or dev (default: production)
+  SKILLCRYPT_AGENT_NAME    Agent display name (default: anonymous)`);
 }
 
 async function main() {
@@ -199,6 +224,184 @@ async function main() {
         });
       } else {
         console.error('usage: skill-crypt transfer [catalog|request|listen]');
+        process.exit(1);
+      }
+      break;
+    }
+
+    case 'share': {
+      const sub = args[0];
+      const { SkillCryptClient } = await import('./xmtp-client.js');
+      const { SkillShare } = await import('./skill-share.js');
+
+      const client = new SkillCryptClient({
+        privateKey: WALLET_KEY,
+        env: XMTP_ENV
+      });
+      await client.connect(vault);
+
+      const share = new SkillShare({
+        client,
+        vault,
+        dataDir: DATA_DIR,
+        agentName: AGENT_NAME
+      });
+
+      if (sub === 'create') {
+        const name = args[1] || 'Skill Share';
+        const groupId = await share.create(name);
+        console.log(`created Skill Share group: ${groupId}`);
+        console.log(`share this ID with other agents so they can join`);
+      } else if (sub === 'join') {
+        const groupId = args[1];
+        if (!groupId) {
+          console.error('usage: skill-crypt share join <group-id>');
+          process.exit(1);
+        }
+        await share.join(groupId);
+        console.log(`joined Skill Share group: ${groupId}`);
+      } else if (sub === 'profile') {
+        // Load state to reconnect to group
+        await share._loadState();
+        if (!share.groupId) {
+          console.error('not connected to a Skill Share group. run: share create or share join');
+          process.exit(1);
+        }
+        await share.join(share.groupId);
+
+        const seeks = [];
+        const seeksIdx = args.indexOf('--seeks');
+        if (seeksIdx >= 0 && args[seeksIdx + 1]) {
+          seeks.push(...args[seeksIdx + 1].split(','));
+        }
+
+        const descIdx = args.indexOf('--desc');
+        const description = descIdx >= 0 ? args[descIdx + 1] || '' : '';
+
+        await share.postProfile({ seeks, description });
+        console.log(`profile posted to Skill Share`);
+      } else if (sub === 'post') {
+        await share._loadState();
+        if (!share.groupId) {
+          console.error('not connected to a Skill Share group');
+          process.exit(1);
+        }
+        await share.join(share.groupId);
+
+        if (args[1] === '--all') {
+          const count = await share.postAllListings();
+          console.log(`posted ${count} listing(s)`);
+        } else if (args[1]) {
+          await share.postListing(args[1]);
+          console.log('listing posted');
+        } else {
+          console.error('usage: skill-crypt share post [skill-id|--all]');
+          process.exit(1);
+        }
+      } else if (sub === 'request') {
+        await share._loadState();
+        if (!share.groupId) {
+          console.error('not connected to a Skill Share group');
+          process.exit(1);
+        }
+        await share.join(share.groupId);
+
+        const query = args.slice(1).join(' ');
+        if (!query) {
+          console.error('usage: skill-crypt share request <query>');
+          process.exit(1);
+        }
+        await share.postRequest(query);
+        console.log(`request posted: "${query}"`);
+      } else if (sub === 'browse') {
+        await share._loadState();
+        const filter = {};
+        const tagIdx = args.indexOf('--tag');
+        if (tagIdx >= 0) filter.tag = args[tagIdx + 1];
+
+        const listings = share.getListings(filter);
+        if (listings.length === 0) {
+          console.log('no listings found');
+        } else {
+          console.log(`${listings.length} listing(s):\n`);
+          for (const l of listings) {
+            console.log(`  ${l.name} v${l.version}`);
+            console.log(`    ${l.description}`);
+            console.log(`    tags: ${l.tags.join(', ') || 'none'}`);
+            console.log(`    provider: ${l.address}`);
+            console.log(`    posted: ${l.timestamp}`);
+            console.log('');
+          }
+        }
+      } else if (sub === 'reviews') {
+        await share._loadState();
+        const filter = {};
+        const provIdx = args.indexOf('--provider');
+        if (provIdx >= 0) filter.provider = args[provIdx + 1];
+
+        const reviews = share.getReviews(filter);
+        if (reviews.length === 0) {
+          console.log('no reviews found');
+        } else {
+          for (const r of reviews) {
+            const stars = '*'.repeat(r.rating);
+            console.log(`  ${r.skillName} [${stars}] from ${r.reviewer.slice(0, 10)}...`);
+            if (r.comment) console.log(`    "${r.comment}"`);
+            console.log('');
+          }
+        }
+      } else if (sub === 'review') {
+        await share._loadState();
+        if (!share.groupId) {
+          console.error('not connected to a Skill Share group');
+          process.exit(1);
+        }
+        await share.join(share.groupId);
+
+        const [, skillName, provider, ratingStr, ...commentParts] = args;
+        if (!skillName || !provider || !ratingStr) {
+          console.error('usage: skill-crypt share review <skill-name> <provider-address> <1-5> [comment]');
+          process.exit(1);
+        }
+        const rating = parseInt(ratingStr);
+        if (isNaN(rating) || rating < 1 || rating > 5) {
+          console.error('rating must be between 1 and 5');
+          process.exit(1);
+        }
+        await share.postReview(skillName, provider, rating, commentParts.join(' '));
+        console.log('review posted');
+      } else if (sub === 'listen') {
+        await share._loadState();
+        if (!share.groupId) {
+          console.error('not connected to a Skill Share group');
+          process.exit(1);
+        }
+        await share.join(share.groupId);
+
+        const autoRespond = args.includes('--auto');
+        console.log(`listening to Skill Share group${autoRespond ? ' (auto-respond enabled)' : ''}...`);
+
+        await share.listen({
+          autoRespond,
+          onEvent: (type, data) => {
+            switch (type) {
+              case 'listing':
+                console.log(`[listing] ${data.name} from ${data.address.slice(0, 10)}... (${data.tags.join(', ')})`);
+                break;
+              case 'listing-request':
+                console.log(`[request] "${data.query}" from ${data.address.slice(0, 10)}...`);
+                break;
+              case 'profile':
+                console.log(`[profile] ${data.name} (${data.address.slice(0, 10)}...) offers: ${data.offers.join(', ')} seeks: ${data.seeks.join(', ')}`);
+                break;
+              case 'review':
+                console.log(`[review] ${data.skillName} ${'*'.repeat(data.rating)} from ${data.reviewer.slice(0, 10)}...`);
+                break;
+            }
+          }
+        });
+      } else {
+        console.error('usage: skill-crypt share [create|join|profile|post|request|browse|reviews|review|listen]');
         process.exit(1);
       }
       break;

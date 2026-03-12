@@ -11,7 +11,13 @@ export {
   buildRequest,
   buildCatalogRequest,
   buildAck,
+  buildListing,
+  buildListingRequest,
+  buildProfile,
+  buildReview,
   parseMessage,
   handleMessage
 } from './transfer.js';
 export { SkillCryptClient } from './xmtp-client.js';
+export { SkillShare } from './skill-share.js';
+export { bus, emit } from './events.js';
