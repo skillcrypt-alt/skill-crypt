@@ -17,7 +17,7 @@
  *   transfer request <addr> <id>  Request a skill from another agent
  *   transfer listen            Listen for incoming requests
  *   share create [name]        Create a Skill Share group
- *   share join <group-id>      Join a Skill Share group
+ *   share join [group-id]       Join Skill Share (no args = request via oracle)
  *   share profile [--seeks x]  Post your agent profile
  *   share post [id|--all]      Post skill listing(s)
  *   share request <query>      Ask group for a skill
@@ -89,7 +89,8 @@ async function connect() {
 
   const vault = new XMTPVault({
     client: client.client,
-    privateKey: WALLET_KEY
+    privateKey: WALLET_KEY,
+    dbDir: client.dbDir
   });
   await vault.init();
 
@@ -236,7 +237,49 @@ async function main() {
           process.exit(1);
         }
         await client.requestSkill(address, skillId);
-        console.log('skill request sent');
+        console.log('skill request sent, waiting for response...');
+
+        // Poll for the skill transfer response (up to 60s)
+        const { parseMessage, handleMessage } = await import('./transfer.js');
+        const deadline = Date.now() + 60000;
+        let received = false;
+
+        while (Date.now() < deadline && !received) {
+          await new Promise(r => setTimeout(r, 3000));
+          await client.client.conversations.sync();
+
+          const dms = await client.client.conversations.listDms();
+          for (const dm of dms) {
+            await dm.sync();
+            const msgs = await dm.messages({ limit: 10 });
+            for (const m of msgs) {
+              if (m.senderInboxId === client.client.inboxId) continue;
+              const text = typeof m.content === 'string' ? m.content : m.content?.text;
+              if (!text) continue;
+              const parsed = parseMessage(text);
+              if (parsed && parsed.type === 'skillcrypt:skill-transfer' && parsed.skillId === skillId) {
+                await vault.store(parsed.name, parsed.content, {
+                  version: parsed.version,
+                  description: parsed.description,
+                  tags: parsed.tags
+                });
+                console.log(`received and stored: ${parsed.name}`);
+                received = true;
+                break;
+              }
+              if (parsed && parsed.type === 'skillcrypt:ack' && !parsed.success) {
+                console.error('provider does not have this skill');
+                received = true;
+                break;
+              }
+            }
+            if (received) break;
+          }
+        }
+
+        if (!received) {
+          console.error('timed out waiting for skill transfer. is the provider listening?');
+        }
       } else if (sub === 'listen') {
         console.log('listening for incoming skill requests...');
         await client.listen();
@@ -265,11 +308,71 @@ async function main() {
         console.log(`created Skill Share group: ${groupId}`);
         console.log('share this ID with other agents so they can join');
       } else if (sub === 'join') {
-        const groupId = args[1];
+        let groupId = args[1];
+
         if (!groupId) {
-          console.error('usage: skill-crypt share join <group-id>');
-          process.exit(1);
+          // zero-arg join: request access from oracle
+          const { DEFAULTS } = await import('./config.js');
+          const { buildJoinRequest } = await import('./oracle.js');
+
+          if (DEFAULTS.groupId) {
+            // try direct join first (already a member)
+            try {
+              await share.join(DEFAULTS.groupId);
+              console.log(`joined Skill Share group: ${DEFAULTS.groupId}`);
+              return;
+            } catch {
+              // not a member yet, request access from oracle
+            }
+          }
+
+          if (!DEFAULTS.oracleAddress) {
+            console.error('no oracle address configured and no group ID provided');
+            process.exit(1);
+          }
+
+          console.log(`requesting access from oracle (${DEFAULTS.oracleAddress})...`);
+          const joinReq = buildJoinRequest(client.getAddress(), AGENT_NAME);
+          await client.send(DEFAULTS.oracleAddress, joinReq);
+
+          // wait for approval (poll DMs for up to 30s)
+          console.log('waiting for approval...');
+          await client.client.conversations.sync();
+          const deadline = Date.now() + 30000;
+          while (Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, 3000));
+            await client.client.conversations.sync();
+
+            // check for approval message in DMs
+            const convos = await client.client.conversations.list();
+            for (const c of convos) {
+              if (c.isGroup) continue;
+              await c.sync();
+              const msgs = await c.messages({ limit: 5 });
+              for (const m of msgs) {
+                let text = typeof m.content === 'string' ? m.content : m.content?.text;
+                if (!text) continue;
+                try {
+                  const p = JSON.parse(text);
+                  if (p.type === 'skillcrypt:join-approved' && p.groupId) {
+                    groupId = p.groupId;
+                  } else if (p.type === 'skillcrypt:join-denied') {
+                    console.error(`access denied: ${p.reason || 'unknown'}`);
+                    process.exit(1);
+                  }
+                } catch {}
+              }
+              if (groupId) break;
+            }
+            if (groupId) break;
+          }
+
+          if (!groupId) {
+            console.error('timed out waiting for oracle approval. is the oracle running?');
+            process.exit(1);
+          }
         }
+
         await share.join(groupId);
         console.log(`joined Skill Share group: ${groupId}`);
       } else if (sub === 'profile') {
@@ -325,6 +428,10 @@ async function main() {
         console.log(`request posted: "${query}"`);
       } else if (sub === 'browse') {
         await share._loadState();
+        if (share.groupId) {
+          await share.join(share.groupId);
+          await share.syncHistory();
+        }
         const filter = {};
         const tagIdx = args.indexOf('--tag');
         if (tagIdx >= 0) filter.tag = args[tagIdx + 1];
@@ -345,6 +452,10 @@ async function main() {
         }
       } else if (sub === 'reviews') {
         await share._loadState();
+        if (share.groupId) {
+          await share.join(share.groupId);
+          await share.syncHistory();
+        }
         const filter = {};
         const provIdx = args.indexOf('--provider');
         if (provIdx >= 0) filter.provider = args[provIdx + 1];

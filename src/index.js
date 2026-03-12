@@ -22,4 +22,6 @@ export {
 export { SkillCryptClient } from './xmtp-client.js';
 export { SkillShare } from './skill-share.js';
 export { bus, emit } from './events.js';
+export { SkillShareOracle, buildJoinRequest } from './oracle.js';
+export { DEFAULTS } from './config.js';
 export { Dashboard } from './dashboard.js';

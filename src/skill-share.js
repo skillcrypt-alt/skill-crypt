@@ -295,6 +295,66 @@ export class SkillShare {
   }
 
   /**
+   * Sync group message history into local indexes.
+   * Call this before browse/reviews to pick up messages
+   * posted before this agent joined or started listening.
+   */
+  async syncHistory() {
+    if (!this.group) throw new Error('not connected to a Skill Share group');
+
+    await this.group.sync();
+    const messages = await this.group.messages();
+
+    for (const message of messages) {
+      let text = null;
+      if (typeof message.content === 'string') {
+        text = message.content;
+      } else if (message.content?.text) {
+        text = message.content.text;
+      }
+      if (!text) continue;
+
+      const parsed = parseMessage(text);
+      if (!parsed) continue;
+
+      switch (parsed.type) {
+        case 'skillcrypt:listing': {
+          // deduplicate by skillId + address
+          const exists = this.listings.some(l =>
+            l.skillId === parsed.skillId && l.address === parsed.address
+          );
+          if (!exists) this.listings.push(parsed);
+          break;
+        }
+        case 'skillcrypt:profile': {
+          const idx = this.profiles.findIndex(p => p.address === parsed.address);
+          if (idx >= 0) this.profiles[idx] = parsed;
+          else this.profiles.push(parsed);
+          break;
+        }
+        case 'skillcrypt:review': {
+          const exists = this.reviews.some(r =>
+            r.skillName === parsed.skillName &&
+            r.reviewer === parsed.reviewer &&
+            r.provider === parsed.provider
+          );
+          if (!exists) this.reviews.push(parsed);
+          break;
+        }
+        case 'skillcrypt:listing-request': {
+          const exists = this.requests.some(r =>
+            r.query === parsed.query && r.address === parsed.address
+          );
+          if (!exists) this.requests.push(parsed);
+          break;
+        }
+      }
+    }
+
+    await this._saveState();
+  }
+
+  /**
    * Get all listings, optionally filtered.
    */
   getListings(filter = {}) {

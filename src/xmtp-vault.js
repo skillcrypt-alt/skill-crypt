@@ -10,6 +10,8 @@
  * The wallet key is the vault.
  */
 
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { join, dirname } from 'node:path';
 import { encrypt, decrypt, hashContent, deriveKey } from './crypto.js';
 import { emit } from './events.js';
 
@@ -25,6 +27,7 @@ export class XMTPVault {
     this.client = opts.client;
     this.key = deriveKey(opts.privateKey);
     this.group = null;
+    this.dbDir = opts.dbDir || './data/xmtp';
 
     // In-memory manifest rebuilt from XMTP messages on sync
     this.manifest = { version: 2, skills: {} };
@@ -36,28 +39,11 @@ export class XMTPVault {
    */
   async init() {
     await this.client.conversations.sync();
-    const convos = await this.client.conversations.list();
 
-    // Find existing vault group
-    for (const c of convos) {
-      try {
-        if (typeof c.name === 'function') {
-          const name = c.name();
-          if (name === VAULT_GROUP_NAME) {
-            this.group = c;
-            break;
-          }
-        } else if (c.name === VAULT_GROUP_NAME) {
-          this.group = c;
-          break;
-        }
-        // Also check via metadata/groupName
-        const meta = c.groupName || c.metadata?.name;
-        if (meta === VAULT_GROUP_NAME) {
-          this.group = c;
-          break;
-        }
-      } catch {}
+    // Try to load saved vault group ID
+    const savedGroupId = await this._loadGroupId();
+    if (savedGroupId) {
+      this.group = await this.client.conversations.getConversationById(savedGroupId);
     }
 
     if (!this.group) {
@@ -66,6 +52,7 @@ export class XMTPVault {
         name: VAULT_GROUP_NAME,
         description: 'skill-crypt encrypted skill vault'
       });
+      await this._saveGroupId(this.group.id);
       emit('vault:created', { groupId: this.group.id });
     }
 
@@ -307,5 +294,25 @@ export class XMTPVault {
     }
 
     emit('vault:synced', { skillCount: Object.keys(this.manifest.skills).length });
+  }
+
+  _groupIdPath() {
+    // Per-wallet state file to avoid collisions
+    const addr = this.client.inboxId || 'default';
+    return join(this.dbDir, `vault-group-id-${addr.slice(0, 12)}`);
+  }
+
+  async _saveGroupId(groupId) {
+    const dir = this.dbDir;
+    await mkdir(dir, { recursive: true });
+    await writeFile(this._groupIdPath(), groupId, 'utf8');
+  }
+
+  async _loadGroupId() {
+    try {
+      return (await readFile(this._groupIdPath(), 'utf8')).trim();
+    } catch {
+      return null;
+    }
   }
 }

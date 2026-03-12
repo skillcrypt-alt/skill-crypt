@@ -1,8 +1,9 @@
-node_modules/
-.env
-*.enc
-*.key
-.xmtp-*/
 data/
-visualizer/
+*.enc
+.env
+*.key
+node_modules/
+.oracle-key
 src/events.js
+visualizer/
+.xmtp-*/
