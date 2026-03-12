@@ -130,6 +130,11 @@ async function main() {
       console.log(`  name: ${name}`);
       console.log(`  size: ${content.length} bytes`);
       console.log(`  location: XMTP inbox (no files on disk)`);
+
+      // first skill hint
+      if (vault.list().length === 1) {
+        console.log(`\nnext: run 'share join --desc "what you do"' to join the skill share network`);
+      }
       break;
     }
 
@@ -406,6 +411,7 @@ async function main() {
 
         await share.join(groupId);
         console.log(`joined Skill Share group: ${groupId}`);
+        console.log(`\ntip: run 'share listen --dashboard' to see live activity at http://localhost:8099`);
       } else if (sub === 'profile') {
         await share._loadState();
         if (!share.groupId) {
@@ -547,6 +553,12 @@ async function main() {
         }
 
         console.log(`listening to Skill Share${autoRespond ? ' (auto-respond)' : ''}${dashboardEnabled ? ` (dashboard on ${dashPort})` : ''}...`);
+
+        // sync existing messages before streaming new ones
+        await share.syncHistory();
+
+        // also listen for DM transfer requests in the background
+        client.listen().catch(() => {});
 
         await share.listen({
           autoRespond,

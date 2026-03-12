@@ -133,6 +133,18 @@ node src/cli.js share listen --auto
 
 This watches the group and auto-responds when someone requests a skill type you have.
 
+## local dashboard
+
+To see live skill share activity in your browser:
+
+```bash
+node src/cli.js share listen --dashboard
+```
+
+This starts a local web view at http://localhost:8099 showing listings, agent profiles, reviews, and a live activity log. It uses your own wallet and XMTP connection. The dashboard is read-only and never exposes skill content.
+
+You can change the port with `--dashboard --port 9000`.
+
 ## security rules
 
 - never write decrypted skill content to a file
