@@ -173,7 +173,7 @@
     font-family: 'JetBrains Mono', monospace; margin-left: 8px;
   }
   .vault-badge.encrypted { background: #fff3e0; color: #e65100; }
-  .vault-badge.decrypted { background: #e8f5e9; color: #2e7d32; }
+  .vault-badge.locked { background: #fce4ec; color: #c62828; }
   .vault-badge.xmtp { background: #e3f2fd; color: #1565c0; }
   .vault-loading { text-align: center; padding: 20px; color: #999; font-size: 12px; }
 
@@ -239,7 +239,7 @@
           MY VAULT (DECRYPTED FROM XMTP)
           <button id="vaultLoadBtn" onclick="loadVault()" style="font-size:10px;padding:3px 10px;border:1px solid #d4c9a8;border-radius:4px;background:#fffdf5;cursor:pointer;font-family:inherit;color:#666">load vault</button>
         </div>
-        <div id="vaultContents"><div class="empty">click "load vault" to decrypt skills from XMTP messages</div></div>
+        <div id="vaultContents"><div class="empty">click "load vault" to fetch encrypted payloads from XMTP</div></div>
       </div>
     </div>
     <div class="sidebar">
@@ -468,7 +468,7 @@ async function loadVault() {
   const el = $('vaultContents');
   btn.disabled = true;
   btn.textContent = 'decrypting...';
-  el.innerHTML = '<div class="vault-loading">fetching encrypted messages from XMTP and decrypting...</div>';
+  el.innerHTML = '<div class="vault-loading">fetching encrypted payloads from XMTP...</div>';
 
   try {
     const res = await fetch('/api/vault');
@@ -482,21 +482,22 @@ async function loadVault() {
 
     el.innerHTML = data.skills.map(s => {
       const tags = (s.tags||[]).map(t => `<span class="tag">${esc(t)}</span>`).join('');
-      const size = s.content ? new Blob([s.content]).size : 0;
+      // Show first 120 chars of base64 ciphertext with ellipsis
+      const preview = s.encrypted ? (s.encrypted.length > 120 ? s.encrypted.slice(0, 120) + '...' : s.encrypted) : 'not found';
       return `<div class="vault-card">
         <div class="vault-card-header">
           <div>
             <span class="vault-card-name">${esc(s.name)}</span>
             <span class="vault-badge xmtp">XMTP</span>
             <span class="vault-badge encrypted">AES-256-GCM</span>
-            <span class="vault-badge decrypted">decrypted</span>
+            <span class="vault-badge locked">encrypted</span>
           </div>
-          <span style="font-size:11px;color:#999">v${esc(s.version||'1.0')} | ${size.toLocaleString()} bytes</span>
+          <span style="font-size:11px;color:#999">v${esc(s.version||'1.0')} | ${(s.encryptedBytes||0).toLocaleString()} bytes ciphertext</span>
         </div>
         <div class="vault-card-hash">${esc(s.skillId)}</div>
         <div class="vault-card-meta">${esc(s.description||'')}</div>
         ${tags ? `<div class="vault-card-tags">${tags}</div>` : ''}
-        <div class="vault-card-content">${s.content ? esc(s.content) : `<span style="color:#ff6b6b">error: ${esc(s.error||'could not decrypt')}</span>`}</div>
+        <div class="vault-card-content">${esc(preview)}</div>
       </div>`;
     }).join('');
 

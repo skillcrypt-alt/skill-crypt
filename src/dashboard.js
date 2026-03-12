@@ -144,15 +144,26 @@ export class Dashboard {
       if (url.pathname === '/api/vault') {
         try {
           const skills = this.vault.list();
-          const results = [];
-          for (const s of skills) {
+          // Fetch raw encrypted payloads from XMTP messages
+          await this.vault.group.sync();
+          const messages = await this.vault.group.messages();
+          const encMap = new Map();
+          for (const msg of messages) {
+            if (msg.senderInboxId !== this.vault.client.inboxId) continue;
+            let text = typeof msg.content === 'string' ? msg.content : msg.content?.text;
+            if (!text) continue;
             try {
-              const content = await this.vault.load(s.skillId);
-              results.push({ ...s, content });
-            } catch (e) {
-              results.push({ ...s, content: null, error: e.message });
-            }
+              const env = JSON.parse(text);
+              if (env.type === 'skillcrypt:vault-entry' && env.contentHash) {
+                encMap.set(env.contentHash, env.payload); // base64 ciphertext
+              }
+            } catch (_) {}
           }
+          const results = skills.map(s => ({
+            ...s,
+            encrypted: encMap.get(s.skillId) || null,
+            encryptedBytes: encMap.has(s.skillId) ? Buffer.from(encMap.get(s.skillId), 'base64').length : 0
+          }));
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ skills: results }));
         } catch (e) {
