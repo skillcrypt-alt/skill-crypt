@@ -71,8 +71,25 @@ export class Dashboard {
   }
 
   start() {
-    // Listen to skill-crypt events
+    // Map internal bus events to typed SSE messages the frontend can handle
     bus.on('event', (ev) => {
+      const t = ev.type || '';
+
+      if (t.includes('listing')) {
+        this.broadcast({ type: 'listing', data: ev.data || ev });
+        this.broadcast({ type: 'state-patch', patch: { listings: this.share.getListings() } });
+      } else if (t.includes('profile')) {
+        this.broadcast({ type: 'profile', data: ev.data || ev });
+        this.broadcast({ type: 'state-patch', patch: { profiles: this.share.getProfiles() } });
+      } else if (t.includes('review')) {
+        this.broadcast({ type: 'review', data: ev.data || ev });
+        this.broadcast({ type: 'state-patch', patch: { reviews: this.share.getReviews() } });
+      } else if (t.includes('request')) {
+        this.broadcast({ type: 'request', data: ev.data || ev });
+        this.broadcast({ type: 'state-patch', patch: { requests: this.share.requests.slice(-20) } });
+      }
+
+      // Always forward raw event too
       this.broadcast({ type: 'event', data: ev });
     });
 
@@ -95,7 +112,8 @@ export class Dashboard {
       }
 
       if (url.pathname === '/' || url.pathname === '/index.html') {
-        const html = await readFile(join(dirname(__dirname), 'visualizer', 'index.html'), 'utf8');
+        // HTML ships alongside this file in src/dashboard.html
+        const html = await readFile(join(__dirname, 'dashboard.html'), 'utf8');
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(html);
         return;

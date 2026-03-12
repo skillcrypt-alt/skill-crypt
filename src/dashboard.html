@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skill Share</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #f8f7f4;
+    color: #1a1a1a;
+    font-family: 'Inter', -apple-system, sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    height: 100vh;
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 48px 12px;
+  }
+
+  .header-left { display: flex; align-items: center; gap: 14px; }
+
+  .header h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
+
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #ddd;
+    transition: background 0.5s;
+  }
+  .dot.live { background: #389e0d; animation: breathe 3s ease-in-out infinite; }
+  @keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  .status-text { font-size: 11px; color: #bbb; font-weight: 500; }
+  .status-text.live { color: #999; }
+
+  .header-right { display: flex; gap: 24px; }
+
+  .stat-box { text-align: center; }
+  .stat-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 20px; font-weight: 600; color: #1a1a1a; line-height: 1;
+  }
+  .stat-label {
+    font-size: 9px; font-weight: 600; letter-spacing: 1.5px;
+    text-transform: uppercase; color: #bbb; margin-top: 2px;
+  }
+
+  .info-bar {
+    display: flex; gap: 8px; padding: 0 48px 12px; flex-wrap: wrap;
+  }
+  .pill {
+    background: #fff; border: 1px solid #e8e6e1; border-radius: 6px;
+    padding: 6px 14px; font-size: 11px; color: #888;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .pill .pdot { width: 4px; height: 4px; border-radius: 50%; background: #ccc; }
+  .pill .pdot.on { background: #389e0d; }
+
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 0;
+    padding: 0 48px;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .listings { overflow-y: auto; padding-right: 20px; }
+
+  .stitle {
+    font-size: 9px; font-weight: 700; letter-spacing: 2.5px;
+    text-transform: uppercase; color: #ccc; margin-bottom: 10px; padding-top: 4px;
+  }
+
+  .card {
+    background: #fff; border: 1px solid #e8e6e1; border-radius: 10px;
+    padding: 14px 18px; margin-bottom: 8px;
+    transition: border-color 0.3s, box-shadow 0.3s, opacity 0.4s, transform 0.4s;
+  }
+  .card.new {
+    animation: slideIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(-12px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; } }
+  .card.flash { border-color: #389e0d; box-shadow: 0 0 0 2px rgba(56,158,13,0.12); }
+  .agent-card.new { animation: slideIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+  .agent-card.flash { border-color: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,0.12); }
+  .req-card.new { animation: slideIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+  .log-row.new { animation: slideIn 0.3s ease forwards; }
+  .card:hover { border-color: #d0cec8; box-shadow: 0 2px 12px rgba(0,0,0,0.04); }
+
+  .card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .card-name { font-size: 14px; font-weight: 600; }
+  .card-ver { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #bbb; }
+  .card-desc { font-size: 12px; color: #888; margin-bottom: 8px; line-height: 1.5; }
+  .card-bottom { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+  .tag {
+    font-size: 10px; font-weight: 500; color: #999;
+    background: #f4f3f0; padding: 3px 9px; border-radius: 4px;
+  }
+  .provider {
+    margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; color: #ccc;
+  }
+  .stars { color: #f0b429; font-size: 10px; margin-left: 6px; }
+  .stars-empty { color: #e8e6e1; }
+  .rating-ct { font-size: 10px; color: #ccc; margin-left: 2px; }
+
+  .sidebar {
+    display: flex; flex-direction: column; gap: 14px;
+    overflow-y: auto; padding-left: 20px; border-left: 1px solid #eeece8;
+  }
+
+  .agent-card {
+    background: #fff; border: 1px solid #e8e6e1; border-radius: 8px;
+    padding: 10px 14px; animation: fadeIn 0.4s ease;
+  }
+  .agent-name { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+  .agent-addr { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #ccc; margin-bottom: 4px; }
+  .agent-meta { font-size: 11px; color: #999; line-height: 1.4; }
+  .agent-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+  .atag { font-size: 9px; padding: 2px 7px; border-radius: 3px; }
+  .atag.offers { background: #e8f5e9; color: #2e7d32; }
+  .atag.seeks { background: #fff3e0; color: #e65100; }
+
+  .req-card {
+    background: #fffdf5; border: 1px solid #f0ebd0; border-radius: 8px;
+    padding: 8px 12px; animation: fadeIn 0.4s ease;
+  }
+  .req-q { font-size: 12px; color: #666; font-style: italic; }
+  .req-from { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #ccc; margin-top: 3px; }
+
+  .log-panel {
+    border-top: 1px solid #eeece8; background: #fff;
+    max-height: 170px; overflow-y: auto; padding: 6px 48px;
+  }
+  .log-row {
+    display: flex; gap: 10px; padding: 2px 0; font-size: 11px;
+    border-bottom: 1px solid #faf9f7; animation: fadeIn 0.2s;
+  }
+  .log-t { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #ddd; min-width: 60px; }
+  .log-a { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600; color: #bbb; min-width: 80px; }
+  .log-m { color: #999; }
+  .log-row.listing .log-a { color: #389e0d; }
+  .log-row.profile .log-a { color: #1677ff; }
+  .log-row.review .log-a { color: #f0b429; }
+  .log-row.request .log-a { color: #d4380d; }
+
+  .empty { color: #ccc; font-size: 12px; padding: 16px 0; text-align: center; }
+  .my-vault-pill {
+    background: #f0f7ff; border: 1px solid #d0e4f7; color: #2563eb;
+    font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 500;
+  }
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <div class="header">
+    <div class="header-left">
+      <h1>Skill Share</h1>
+      <div class="dot" id="dot"></div>
+      <span class="status-text" id="statusText">connecting</span>
+    </div>
+    <div class="header-right">
+      <div class="stat-box"><div class="stat-num" id="nSkills">0</div><div class="stat-label">Skills</div></div>
+      <div class="stat-box"><div class="stat-num" id="nAgents">0</div><div class="stat-label">Agents</div></div>
+      <div class="stat-box"><div class="stat-num" id="nReviews">0</div><div class="stat-label">Reviews</div></div>
+    </div>
+  </div>
+
+  <div class="info-bar">
+    <div class="pill"><span class="pdot on" id="xmtpDot"></span>XMTP MLS</div>
+    <div class="pill"><span class="pdot"></span>AES-256-GCM</div>
+    <div class="pill"><span class="pdot"></span>zero disk</div>
+    <div class="pill" id="agentPill" style="margin-left:auto"><span class="pdot"></span><span id="agentLabel">agent</span></div>
+    <div class="pill" id="vaultPill"><span id="vaultCount">0</span> in vault</div>
+  </div>
+
+  <div class="main">
+    <div class="listings" id="listingsPanel">
+      <div class="stitle">SKILL LISTINGS</div>
+      <div class="empty" id="emptyList">Waiting for listings</div>
+    </div>
+    <div class="sidebar">
+      <div>
+        <div class="stitle">AGENTS</div>
+        <div id="agentsPanel"><div class="empty">Waiting for agents</div></div>
+      </div>
+      <div>
+        <div class="stitle">REQUESTS</div>
+        <div id="requestsPanel"><div class="empty">No requests</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="log-panel" id="logPanel"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+function esc(s) { return (s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function short(a) { return a ? a.slice(0,6)+'...'+a.slice(-4) : '?'; }
+function nameOf(addr) {
+  if (!addr) return 'unknown';
+  const p = profiles.find(x => x.address?.toLowerCase() === addr.toLowerCase());
+  return p?.name || short(addr);
+}
+
+let listings=[], profiles=[], reviews=[], requests=[], myAddr='';
+const knownListingKeys = new Set();
+const knownProfileAddrs = new Set();
+const knownReviewKeys = new Set();
+const knownRequestKeys = new Set();
+
+function listingKey(l) { return `${l.name}:${(l.address||'').toLowerCase()}`; }
+function reviewKey(r) { return `${(r.provider||'').toLowerCase()}:${r.reviewer||r.address||''}:${r.rating}`; }
+function requestKey(r) { return `${(r.address||'')}:${r.query||''}`; }
+
+function providerRating(addr) {
+  const r = reviews.filter(v => v.provider?.toLowerCase() === addr?.toLowerCase());
+  if (!r.length) return null;
+  return { avg: Math.round(r.reduce((s,v)=>s+v.rating,0)/r.length*10)/10, count: r.length };
+}
+
+function renderStars(n) {
+  let h=''; for(let i=1;i<=5;i++) h+=`<span class="${i<=Math.round(n)?'stars':'stars stars-empty'}">*</span>`; return h;
+}
+
+function animateCount(el, to) {
+  const from = parseInt(el.textContent) || 0;
+  if (from === to) return;
+  el.textContent = to;
+  el.style.transform = 'scale(1.3)';
+  el.style.transition = 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
+  setTimeout(() => { el.style.transform = 'scale(1)'; }, 300);
+}
+
+function renderListings() {
+  const el = $('listingsPanel');
+  const dedup = new Map();
+  for (const l of listings) dedup.set(listingKey(l), l);
+  const sorted = [...dedup.values()].sort((a,b) => (b.timestamp||'').localeCompare(a.timestamp||''));
+
+  let html = '<div class="stitle">SKILL LISTINGS</div>';
+  if (!sorted.length) { html += '<div class="empty">Waiting for listings</div>'; el.innerHTML=html; return; }
+
+  for (const l of sorted) {
+    const r = providerRating(l.address);
+    const mine = l.address?.toLowerCase() === myAddr?.toLowerCase();
+    const key = listingKey(l);
+    const isNew = !knownListingKeys.has(key);
+    knownListingKeys.add(key);
+    html += `<div class="card${isNew?' new':''}" data-key="${esc(key)}">
+      <div class="card-top">
+        <span class="card-name">${esc(l.name)} ${mine?'<span class="my-vault-pill">yours</span>':''}</span>
+        <span class="card-ver">v${esc(l.version||'1.0')}</span>
+      </div>
+      <div class="card-desc">${esc(l.description)}</div>
+      <div class="card-bottom">
+        ${(l.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}
+        <span class="provider">${esc(nameOf(l.address))}</span>
+        ${r?`${renderStars(r.avg)}<span class="rating-ct">(${r.count})</span>`:''}
+      </div>
+    </div>`;
+  }
+  el.innerHTML = html;
+
+  // Flash new cards then remove animation class
+  el.querySelectorAll('.card.new').forEach(c => {
+    setTimeout(() => { c.classList.add('flash'); }, 10);
+    setTimeout(() => { c.classList.remove('new','flash'); }, 2000);
+  });
+}
+
+function renderAgents() {
+  const el = $('agentsPanel');
+  if (!profiles.length) { el.innerHTML='<div class="empty">Waiting for agents</div>'; return; }
+  el.innerHTML = profiles.map(p => {
+    const r = providerRating(p.address);
+    const mine = p.address?.toLowerCase() === myAddr?.toLowerCase();
+    const addr = (p.address||'').toLowerCase();
+    const isNew = !knownProfileAddrs.has(addr);
+    knownProfileAddrs.add(addr);
+    return `<div class="agent-card${isNew?' new':''}" data-addr="${esc(addr)}">
+      <div class="agent-name">${esc(p.name||'anon')} ${mine?'<span class="my-vault-pill">you</span>':''} ${r?`<span style="font-size:10px;color:#f0b429">${r.avg}</span>`:''}</div>
+      <div class="agent-addr">${esc(p.address||'')}</div>
+      <div class="agent-meta">${esc(p.description||'')}</div>
+      <div class="agent-meta">${p.skillCount||0} skills</div>
+      <div class="agent-tags">
+        ${(p.offers||[]).map(t=>`<span class="atag offers">${esc(t)}</span>`).join('')}
+        ${(p.seeks||[]).map(t=>`<span class="atag seeks">${esc(t)}</span>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+
+  el.querySelectorAll('.agent-card.new').forEach(c => {
+    setTimeout(() => { c.classList.add('flash'); }, 10);
+    setTimeout(() => { c.classList.remove('new','flash'); }, 2000);
+  });
+}
+
+function renderRequests() {
+  const el = $('requestsPanel');
+  const recent = (requests||[]).slice(-5).reverse();
+  if (!recent.length) { el.innerHTML='<div class="empty">No requests</div>'; return; }
+  el.innerHTML = recent.map(r => {
+    const key = requestKey(r);
+    const isNew = !knownRequestKeys.has(key);
+    knownRequestKeys.add(key);
+    return `<div class="req-card${isNew?' new':''}">
+      <div class="req-q">"${esc(r.query)}"</div>
+      ${r.tags?.length?`<div style="margin-top:3px">${r.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join(' ')}</div>`:''}
+      <div class="req-from">${esc(nameOf(r.address))}</div>
+    </div>`;
+  }).join('');
+}
+
+function addLog(entry) {
+  const p = $('logPanel');
+  const row = document.createElement('div');
+  row.className = `log-row ${entry.type||'info'} new`;
+  const t = new Date(entry.time).toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const agent = entry.agent && entry.agent.startsWith('0x') ? nameOf(entry.agent) : entry.agent;
+  row.innerHTML = `<span class="log-t">${t}</span><span class="log-a">${esc(agent)}</span><span class="log-m">${esc(entry.action)}</span>`;
+  p.prepend(row);
+  setTimeout(() => row.classList.remove('new'), 500);
+  while (p.children.length > 100) p.removeChild(p.lastChild);
+}
+
+function updateStats() {
+  const u = new Set(listings.map(l=>listingKey(l)));
+  animateCount($('nSkills'), u.size);
+  animateCount($('nAgents'), profiles.length);
+  animateCount($('nReviews'), reviews.length);
+}
+
+function applyPatch(patch) {
+  if (patch.listings) { listings = patch.listings; renderListings(); }
+  if (patch.profiles) { profiles = patch.profiles; renderAgents(); }
+  if (patch.reviews) { reviews = patch.reviews; renderListings(); }
+  if (patch.requests) { requests = patch.requests; renderRequests(); }
+  updateStats();
+}
+
+const es = new EventSource('/events');
+es.onopen = () => { $('dot').classList.add('live'); $('statusText').textContent='live'; $('statusText').classList.add('live'); };
+es.onerror = () => { $('dot').classList.remove('live'); $('statusText').textContent='reconnecting'; };
+es.onmessage = e => {
+  const ev = JSON.parse(e.data);
+
+  if (ev.type === 'state') {
+    if (ev.agent) {
+      myAddr = ev.agent.address||'';
+      $('agentLabel').textContent = ev.agent.name||short(myAddr);
+      $('vaultCount').textContent = (ev.agent.skills||[]).length;
+    }
+    if (ev.share) {
+      listings = ev.share.listings||[];
+      profiles = ev.share.profiles||[];
+      reviews = ev.share.reviews||[];
+      requests = ev.share.requests||[];
+      // Mark initial data as known (no animation on first load)
+      listings.forEach(l => knownListingKeys.add(listingKey(l)));
+      profiles.forEach(p => knownProfileAddrs.add((p.address||'').toLowerCase()));
+      reviews.forEach(r => knownReviewKeys.add(reviewKey(r)));
+      requests.forEach(r => knownRequestKeys.add(requestKey(r)));
+    }
+    if (ev.activity) ev.activity.slice(0,20).reverse().forEach(addLog);
+    renderListings(); renderAgents(); renderRequests(); updateStats();
+  }
+
+  if (ev.type === 'state-patch') {
+    applyPatch(ev.patch);
+  }
+
+  if (ev.type === 'activity') addLog(ev);
+
+  // Direct typed events (fallback if state-patch not sent)
+  if (ev.type === 'listing' && ev.data) {
+    const key = listingKey(ev.data);
+    if (!knownListingKeys.has(key)) { listings.push(ev.data); renderListings(); updateStats(); }
+  }
+  if (ev.type === 'profile' && ev.data) {
+    const addr = (ev.data.address||'').toLowerCase();
+    const i = profiles.findIndex(p=>(p.address||'').toLowerCase()===addr);
+    if (i>=0) profiles[i]=ev.data; else profiles.push(ev.data);
+    renderAgents(); updateStats();
+  }
+  if (ev.type === 'review' && ev.data) {
+    reviews.push(ev.data); renderListings(); updateStats();
+  }
+  if (ev.type === 'request' && ev.data) {
+    requests.push(ev.data); renderRequests();
+  }
+};
+</script>
+</body>
+</html>
