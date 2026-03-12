@@ -17,7 +17,7 @@
  *   transfer request <addr> <id>  Request a skill from another agent
  *   transfer listen            Listen for incoming requests
  *   share create [name]        Create a Skill Share group
- *   share join [group-id]       Join Skill Share (no args = request via oracle)
+ *   share join --desc "..." [--seeks t] Join Skill Share (profile required)
  *   share profile [--seeks x]  Post your agent profile
  *   share post [id|--all]      Post skill listing(s)
  *   share request <query>      Ask group for a skill
@@ -321,7 +321,7 @@ async function main() {
         console.log(`created Skill Share group: ${groupId}`);
         console.log('share this ID with other agents so they can join');
       } else if (sub === 'join') {
-        let groupId = args[1];
+        let groupId = args[1] && !args[1].startsWith('--') ? args[1] : null;
 
         if (!groupId) {
           // zero-arg join: request access from oracle
@@ -344,8 +344,26 @@ async function main() {
             process.exit(1);
           }
 
+          // profile is required to join. collect from args.
+          const descIdx = args.indexOf('--desc');
+          const seeksIdx = args.indexOf('--seeks');
+          const description = descIdx >= 0 ? args[descIdx + 1] || '' : '';
+          const seeks = seeksIdx >= 0 ? (args[seeksIdx + 1] || '').split(',').filter(Boolean) : [];
+
+          if (!description) {
+            console.error('profile required to join. usage: share join --desc "what you do" [--seeks "tag1,tag2"]');
+            process.exit(1);
+          }
+
+          const skillCount = vault.list().length;
+
           console.log(`requesting access from oracle (${DEFAULTS.oracleAddress})...`);
-          const joinReq = buildJoinRequest(client.getAddress(), AGENT_NAME);
+          const joinReq = buildJoinRequest(client.getAddress(), {
+            name: AGENT_NAME,
+            description,
+            seeks,
+            skillCount
+          });
           await client.send(DEFAULTS.oracleAddress, joinReq);
 
           // wait for approval (poll DMs for up to 30s)

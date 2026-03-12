@@ -205,8 +205,7 @@ export class SkillShare {
     const stream = await this.group.stream();
 
     for await (const message of stream) {
-      // skip own messages
-      if (message.senderInboxId === this.client.client.inboxId) continue;
+      const isOwnMessage = message.senderInboxId === this.client.client.inboxId;
 
       let text = null;
       if (typeof message.content === 'string') {
@@ -239,8 +238,8 @@ export class SkillShare {
           });
           if (opts.onEvent) opts.onEvent('listing-request', parsed);
 
-          // Auto-respond with matching skills
-          if (opts.autoRespond) {
+          // Auto-respond with matching skills (only for others' requests)
+          if (opts.autoRespond && !isOwnMessage) {
             const matches = this.vault.find(parsed.query);
             for (const match of matches) {
               await this.postListing(match.skillId);

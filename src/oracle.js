@@ -16,6 +16,8 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { emit } from './events.js';
 
+import { parseMessage, buildListing, buildProfile } from './transfer.js';
+
 const JOIN_REQUEST_TYPE = 'skillcrypt:join-request';
 const JOIN_APPROVED_TYPE = 'skillcrypt:join-approved';
 const JOIN_DENIED_TYPE = 'skillcrypt:join-denied';
@@ -37,6 +39,7 @@ export class SkillShareOracle {
     this.group = null;
     this.groupId = null;
     this.members = new Set();
+    this.listings = [];  // all listings seen, retransmitted on new joins
     this.statePath = join(this.dataDir, 'oracle-state.json');
   }
 
@@ -92,6 +95,27 @@ export class SkillShareOracle {
 
     if (!this.group) {
       throw new Error(`group not found: ${this.groupId}`);
+    }
+
+    // sync existing listings from group history
+    await this.group.sync();
+    const messages = await this.group.messages();
+    for (const msg of messages) {
+      let text = typeof msg.content === 'string' ? msg.content : msg.content?.text;
+      if (!text) continue;
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed.type === 'skillcrypt:listing') {
+          const exists = this.listings.some(l =>
+            l.skillId === parsed.skillId && l.address === parsed.address
+          );
+          if (!exists) this.listings.push(parsed);
+        }
+      } catch {}
+    }
+    if (this.listings.length > 0) {
+      console.log(`[oracle] synced ${this.listings.length} listing(s) from history`);
+      await this._saveState();
     }
 
     console.log(`[oracle] resumed group: ${this.groupId}`);
@@ -179,15 +203,44 @@ export class SkillShareOracle {
         continue;
       }
 
+      // track listings from group messages for retransmit
+      if (parsed.type === 'skillcrypt:listing') {
+        const exists = this.listings.some(l =>
+          l.skillId === parsed.skillId && l.address === parsed.address
+        );
+        if (!exists) {
+          this.listings.push(parsed);
+          await this._saveState();
+        }
+        continue;
+      }
+
       if (parsed.type !== JOIN_REQUEST_TYPE) continue;
 
       const requesterAddress = parsed.address?.toLowerCase();
       if (!requesterAddress) continue;
 
-      console.log(`[oracle] join request from ${requesterAddress}`);
-      emit('oracle:join-request', { address: requesterAddress });
+      // profile is required. reject if missing.
+      if (!parsed.profile || !parsed.profile.name || !parsed.profile.description) {
+        console.log(`[oracle] rejected ${requesterAddress} -- no profile`);
+        emit('oracle:join-denied', { address: requesterAddress, reason: 'profile required' });
 
-      if (opts.onEvent) opts.onEvent('join-request', { address: requesterAddress });
+        const conv = await this.client.client.conversations.getConversationById(
+          message.conversationId
+        );
+        await conv.sendText(JSON.stringify({
+          type: JOIN_DENIED_TYPE,
+          reason: 'profile required. include name and description in your join request.',
+          timestamp: new Date().toISOString()
+        }));
+        if (opts.onEvent) opts.onEvent('join-denied', { address: requesterAddress, reason: 'no profile' });
+        continue;
+      }
+
+      console.log(`[oracle] join request from ${parsed.profile.name} (${requesterAddress})`);
+      emit('oracle:join-request', { address: requesterAddress, name: parsed.profile.name });
+
+      if (opts.onEvent) opts.onEvent('join-request', { address: requesterAddress, name: parsed.profile.name });
 
       // custom approval gate if provided
       if (opts.approvalFn) {
@@ -215,6 +268,27 @@ export class SkillShareOracle {
           timestamp: new Date().toISOString()
         }));
         if (opts.onEvent) opts.onEvent('join-approved', { address: requesterAddress });
+
+        // post their profile to the group on their behalf
+        const profile = buildProfile({
+          name: parsed.profile.name,
+          address: requesterAddress,
+          description: parsed.profile.description,
+          offers: parsed.profile.offers || [],
+          seeks: parsed.profile.seeks || [],
+          skillCount: parsed.profile.skillCount || 0
+        });
+        await this.group.sync();
+        await this.group.sendText(JSON.stringify(profile));
+        console.log(`[oracle] posted profile for ${parsed.profile.name}`);
+
+        // retransmit all known listings so the new member sees them
+        if (this.listings.length > 0) {
+          console.log(`[oracle] retransmitting ${this.listings.length} listing(s)`);
+          for (const listing of this.listings) {
+            await this.group.sendText(JSON.stringify(listing));
+          }
+        }
       } else {
         await conversation.sendText(JSON.stringify({
           type: JOIN_DENIED_TYPE,
@@ -251,7 +325,8 @@ export class SkillShareOracle {
     const state = {
       groupId: this.groupId,
       members: [...this.members],
-      groupName: this.groupName
+      groupName: this.groupName,
+      listings: this.listings.slice(-200)
     };
     await writeFile(this.statePath, JSON.stringify(state, null, 2));
   }
@@ -263,6 +338,7 @@ export class SkillShareOracle {
       this.groupId = state.groupId || null;
       this.members = new Set(state.members || []);
       this.groupName = state.groupName || this.groupName;
+      this.listings = state.listings || [];
     } catch {
       // fresh state
     }
@@ -271,16 +347,32 @@ export class SkillShareOracle {
 
 /**
  * Build a join request message to send to the oracle.
+ * Profile is required. The oracle will reject requests without one.
  *
  * @param {string} address - Your wallet address
- * @param {string} [agentName] - Optional display name
+ * @param {object} profile - Agent profile (name, description required)
+ * @param {string} profile.name - Agent display name
+ * @param {string} profile.description - What this agent does
+ * @param {string[]} [profile.offers] - Skill tags this agent offers
+ * @param {string[]} [profile.seeks] - Skill tags this agent is looking for
+ * @param {number} [profile.skillCount] - Number of skills in vault
  * @returns {object} Protocol message
  */
-export function buildJoinRequest(address, agentName) {
+export function buildJoinRequest(address, profile) {
+  if (!profile || !profile.name || !profile.description) {
+    throw new Error('profile with name and description is required to join');
+  }
+
   return {
     type: JOIN_REQUEST_TYPE,
     address: address.toLowerCase(),
-    name: agentName || 'anonymous',
+    profile: {
+      name: profile.name,
+      description: profile.description,
+      offers: profile.offers || [],
+      seeks: profile.seeks || [],
+      skillCount: profile.skillCount || 0
+    },
     timestamp: new Date().toISOString()
   };
 }
