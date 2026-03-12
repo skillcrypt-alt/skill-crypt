@@ -74,19 +74,49 @@ export class Dashboard {
     // Map internal bus events to typed SSE messages the frontend can handle
     bus.on('event', (ev) => {
       const t = ev.type || '';
+      const d = ev.data || ev;
 
-      if (t.includes('listing')) {
-        this.broadcast({ type: 'listing', data: ev.data || ev });
+      // Determine a human-readable label for the log
+      let logAgent = d.address || d.provider || d.name || '';
+      let logAction = '';
+      let logType = 'info';
+
+      if (t.includes('listing-received') || t.includes('listing-posted')) {
+        logAction = `listed ${d.name || 'skill'}`;
+        logType = 'listing';
+        this.broadcast({ type: 'listing', data: d });
+        this.broadcast({ type: 'state-patch', patch: { listings: this.share.getListings() } });
+      } else if (t.includes('listing')) {
+        logAction = `listing: ${d.name || 'skill'}`;
+        logType = 'listing';
+        this.broadcast({ type: 'listing', data: d });
         this.broadcast({ type: 'state-patch', patch: { listings: this.share.getListings() } });
       } else if (t.includes('profile')) {
-        this.broadcast({ type: 'profile', data: ev.data || ev });
+        logAction = `joined: ${d.name || 'agent'}`;
+        logType = 'profile';
+        this.broadcast({ type: 'profile', data: d });
         this.broadcast({ type: 'state-patch', patch: { profiles: this.share.getProfiles() } });
       } else if (t.includes('review')) {
-        this.broadcast({ type: 'review', data: ev.data || ev });
+        logAction = `reviewed ${d.skillName || 'skill'}: ${'*'.repeat(d.rating || 0)}`;
+        logType = 'review';
+        this.broadcast({ type: 'review', data: d });
         this.broadcast({ type: 'state-patch', patch: { reviews: this.share.getReviews() } });
       } else if (t.includes('request')) {
-        this.broadcast({ type: 'request', data: ev.data || ev });
+        logAction = `requested: "${d.query || d.skillId || '?'}"`;
+        logType = 'request';
+        this.broadcast({ type: 'request', data: d });
         this.broadcast({ type: 'state-patch', patch: { requests: this.share.requests.slice(-20) } });
+      } else if (t.includes('transfer') || t.includes('vault')) {
+        logAction = t.replace('skillcrypt:', '');
+        logType = 'transfer';
+      } else if (t.includes('oracle')) {
+        logAction = t.replace('oracle:', '') + (d.name ? ` (${d.name})` : '');
+        logType = 'oracle';
+      }
+
+      // Log everything to the activity feed
+      if (logAction) {
+        this.log(logAgent, logAction, logType);
       }
 
       // Always forward raw event too

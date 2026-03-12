@@ -162,9 +162,17 @@
   .log-a { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600; color: #bbb; min-width: 80px; }
   .log-m { color: #999; }
   .log-row.listing .log-a { color: #389e0d; }
+  .log-row.listing .log-m { color: #389e0d; }
   .log-row.profile .log-a { color: #1677ff; }
+  .log-row.profile .log-m { color: #1677ff; }
   .log-row.review .log-a { color: #f0b429; }
+  .log-row.review .log-m { color: #f0b429; }
   .log-row.request .log-a { color: #d4380d; }
+  .log-row.request .log-m { color: #d4380d; }
+  .log-row.transfer .log-a { color: #722ed1; }
+  .log-row.transfer .log-m { color: #722ed1; }
+  .log-row.oracle .log-a { color: #eb2f96; }
+  .log-row.oracle .log-m { color: #eb2f96; }
 
   .empty { color: #ccc; font-size: 12px; padding: 16px 0; text-align: center; }
   .my-vault-pill {
@@ -208,8 +216,8 @@
         <div id="agentsPanel"><div class="empty">Waiting for agents</div></div>
       </div>
       <div>
-        <div class="stitle">REQUESTS</div>
-        <div id="requestsPanel"><div class="empty">No requests</div></div>
+        <div class="stitle">REVIEWS</div>
+        <div id="reviewsPanel"><div class="empty">No reviews yet</div></div>
       </div>
     </div>
   </div>
@@ -320,20 +328,28 @@ function renderAgents() {
   });
 }
 
-function renderRequests() {
-  const el = $('requestsPanel');
-  const recent = (requests||[]).slice(-5).reverse();
-  if (!recent.length) { el.innerHTML='<div class="empty">No requests</div>'; return; }
+function renderReviews() {
+  const el = $('reviewsPanel');
+  if (!reviews.length) { el.innerHTML='<div class="empty">No reviews yet</div>'; return; }
+  const recent = reviews.slice(-10).reverse();
   el.innerHTML = recent.map(r => {
-    const key = requestKey(r);
-    const isNew = !knownRequestKeys.has(key);
-    knownRequestKeys.add(key);
+    const key = reviewKey(r);
+    const isNew = !knownReviewKeys.has(key);
+    knownReviewKeys.add(key);
+    const stars = '*'.repeat(Math.round(r.rating || 0));
     return `<div class="req-card${isNew?' new':''}">
-      <div class="req-q">"${esc(r.query)}"</div>
-      ${r.tags?.length?`<div style="margin-top:3px">${r.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join(' ')}</div>`:''}
-      <div class="req-from">${esc(nameOf(r.address))}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;font-weight:600">${esc(r.skillName||'skill')}</span>
+        <span style="color:#f0b429;font-size:11px">${stars}</span>
+      </div>
+      ${r.comment?`<div style="font-size:11px;color:#888;font-style:italic;margin-top:2px">"${esc(r.comment)}"</div>`:''}
+      <div class="req-from">${esc(nameOf(r.reviewer||r.address))} on ${esc(nameOf(r.provider))}</div>
     </div>`;
   }).join('');
+
+  el.querySelectorAll('.req-card.new').forEach(c => {
+    setTimeout(() => c.classList.remove('new'), 2000);
+  });
 }
 
 function addLog(entry) {
@@ -358,8 +374,8 @@ function updateStats() {
 function applyPatch(patch) {
   if (patch.listings) { listings = patch.listings; renderListings(); }
   if (patch.profiles) { profiles = patch.profiles; renderAgents(); }
-  if (patch.reviews) { reviews = patch.reviews; renderListings(); }
-  if (patch.requests) { requests = patch.requests; renderRequests(); }
+  if (patch.reviews) { reviews = patch.reviews; renderListings(); renderReviews(); }
+  if (patch.requests) { requests = patch.requests; }
   updateStats();
 }
 
@@ -387,7 +403,7 @@ es.onmessage = e => {
       requests.forEach(r => knownRequestKeys.add(requestKey(r)));
     }
     if (ev.activity) ev.activity.slice(0,20).reverse().forEach(addLog);
-    renderListings(); renderAgents(); renderRequests(); updateStats();
+    renderListings(); renderAgents(); renderReviews(); updateStats();
   }
 
   if (ev.type === 'state-patch') {
@@ -408,10 +424,10 @@ es.onmessage = e => {
     renderAgents(); updateStats();
   }
   if (ev.type === 'review' && ev.data) {
-    reviews.push(ev.data); renderListings(); updateStats();
+    reviews.push(ev.data); renderListings(); renderReviews(); updateStats();
   }
   if (ev.type === 'request' && ev.data) {
-    requests.push(ev.data); renderRequests();
+    requests.push(ev.data); renderReviews();
   }
 };
 </script>
