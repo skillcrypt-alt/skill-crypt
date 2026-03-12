@@ -483,6 +483,7 @@ async function main() {
             console.log(`    ${l.description}`);
             console.log(`    tags: ${l.tags.join(', ') || 'none'}`);
             console.log(`    provider: ${l.address}`);
+            console.log(`    skill-id: ${l.skillId}`);
             console.log(`    posted: ${l.timestamp}`);
             console.log('');
           }
