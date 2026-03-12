@@ -9,6 +9,7 @@
  *   vault list                  List all skills in the vault
  *   vault find <query>          Search skills by name, tag, or description
  *   vault remove <skill-id>     Remove a skill from the vault
+ *   rotate <new-wallet-key>     Re-encrypt all skills with a new wallet key
  *   transfer catalog <address>  Request a skill catalog from another agent
  *   transfer request <address> <skill-id>  Request a skill from another agent
  *   transfer listen             Listen for incoming skill requests and transfers
@@ -36,6 +37,7 @@ Usage:
   skill-crypt vault list                        List all encrypted skills
   skill-crypt vault find <query>                Search skills
   skill-crypt vault remove <skill-id>           Remove a skill
+  skill-crypt rotate <new-wallet-key>            Re-encrypt vault with new key
   skill-crypt transfer catalog <address>        Request skill catalog from agent
   skill-crypt transfer request <address> <id>   Request a skill from agent
   skill-crypt transfer listen                   Listen for incoming requests
@@ -137,6 +139,28 @@ async function main() {
         console.error('usage: skill-crypt vault [list|find|remove]');
         process.exit(1);
       }
+      break;
+    }
+
+    case 'rotate': {
+      const newKey = args[0];
+      if (!newKey) {
+        console.error('usage: skill-crypt rotate <new-wallet-key>');
+        process.exit(1);
+      }
+      const skills = vault.list();
+      if (skills.length === 0) {
+        console.log('vault is empty, nothing to rotate');
+        break;
+      }
+      console.log(`rotating ${skills.length} skill(s) to new wallet key...`);
+      const result = await vault.rotateKey(newKey);
+      console.log(`rotated: ${result.rotated} skill(s)`);
+      if (result.failed.length > 0) {
+        console.error(`failed: ${result.failed.join(', ')}`);
+        process.exit(1);
+      }
+      console.log('done. update SKILLCRYPT_WALLET_KEY to the new key.');
       break;
     }
 

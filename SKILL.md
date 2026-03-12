@@ -49,6 +49,12 @@ node src/cli.js vault find <query>
 node src/cli.js vault remove <skill-id>
 ```
 
+**Rotate vault to a new wallet key:**
+```bash
+node src/cli.js rotate <new-wallet-key-hex>
+```
+After rotation, update `SKILLCRYPT_WALLET_KEY` to the new key. The old key can no longer decrypt anything in the vault.
+
 **Request a skill catalog from another agent (requires XMTP):**
 ```bash
 node src/cli.js transfer catalog <wallet-address>
@@ -79,6 +85,18 @@ node src/cli.js transfer listen
 3. XMTP encrypts it end-to-end during transit
 4. The receiving agent stores it encrypted with their own wallet key
 5. Confirm receipt via the `skillcrypt:ack` message
+
+## Workflow: Key Rotation
+
+When your agent's wallet key is compromised or you want to rotate on a schedule:
+
+1. Generate a new Ethereum wallet
+2. Run `rotate <new-wallet-key>` to re-encrypt every skill in the vault
+3. Update `SKILLCRYPT_WALLET_KEY` to the new key
+4. Re-register on XMTP with the new wallet if you need to receive transfers
+5. The old key is immediately useless for vault decryption
+
+Rotation is atomic per-skill. If any skill fails to re-encrypt, the command reports which ones failed so you can retry.
 
 ## Security Rules
 

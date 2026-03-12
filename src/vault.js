@@ -125,6 +125,42 @@ export class SkillVault {
     );
   }
 
+  /**
+   * Re-encrypt the entire vault with a new wallet key.
+   *
+   * Decrypts every skill with the current key, re-encrypts with the new key,
+   * and overwrites the .enc files in place. The old key becomes useless after
+   * rotation completes.
+   *
+   * @param {string} newPrivateKeyHex - New wallet private key (hex)
+   * @returns {object} Summary: { rotated: number, failed: string[] }
+   */
+  async rotateKey(newPrivateKeyHex) {
+    const newKey = deriveKey(newPrivateKeyHex);
+    const skills = this.list();
+    const failed = [];
+    let rotated = 0;
+
+    for (const skill of skills) {
+      try {
+        const plaintext = await this.load(skill.skillId);
+        const encrypted = encrypt(plaintext, newKey);
+        await writeFile(join(this.vaultDir, skill.filename), encrypted);
+        // Update content hash to confirm integrity after rotation
+        this.manifest.skills[skill.skillId].rotatedAt = new Date().toISOString();
+        rotated++;
+      } catch (err) {
+        failed.push(skill.skillId);
+      }
+    }
+
+    // Switch to the new key for all future operations
+    this.key = newKey;
+    await this._saveManifest();
+
+    return { rotated, failed };
+  }
+
   async _saveManifest() {
     await writeFile(this.manifestPath, JSON.stringify(this.manifest, null, 2));
   }

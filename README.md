@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-29%20passing-brightgreen.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-30%20passing-brightgreen.svg)](#tests)
 [![XMTP](https://img.shields.io/badge/transport-XMTP%20MLS-purple.svg)](https://xmtp.org)
 [![Encryption](https://img.shields.io/badge/encryption-AES--256--GCM-orange.svg)](#security-model)
 
@@ -88,7 +88,13 @@ Your agent checks its vault, finds the relevant skill, decrypts it into memory, 
 
 Your agent decrypts the skill in memory, sends it over XMTP to the other agent's wallet, and the receiving agent re-encrypts it with their own key. The skill traveled between two agents without ever being a plaintext file on either machine.
 
-### 7. Receive skills
+### 7. Rotate your wallet key
+
+> "Generate a new wallet and rotate my skill-crypt vault to use it."
+
+Your agent creates a new wallet, re-encrypts every skill in the vault with the new key, and updates the config. The old key is immediately useless. Use this on a schedule or any time a key might be compromised.
+
+### 8. Receive skills
 
 > "Check if anyone has sent me skills."
 

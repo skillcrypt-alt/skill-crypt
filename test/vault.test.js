@@ -86,6 +86,33 @@ describe('SkillVault', () => {
     await assert.rejects(() => vault.load('does-not-exist'));
   });
 
+  it('rotates all skills to a new wallet key', async () => {
+    const NEW_KEY = '0x' + 'ab'.repeat(32);
+    const skillsBefore = vault.list();
+    const count = skillsBefore.length;
+
+    // Decrypt one skill before rotation to verify content
+    const testSkill = skillsBefore[0];
+    const contentBefore = await vault.load(testSkill.skillId);
+
+    const result = await vault.rotateKey(NEW_KEY);
+    assert.strictEqual(result.rotated, count);
+    assert.strictEqual(result.failed.length, 0);
+
+    // Can decrypt with new key
+    const contentAfter = await vault.load(testSkill.skillId);
+    assert.strictEqual(contentAfter, contentBefore);
+
+    // Manifest has rotatedAt timestamps
+    const meta = vault.manifest.skills[testSkill.skillId];
+    assert.ok(meta.rotatedAt);
+
+    // Old key cannot decrypt
+    const oldVault = new SkillVault(TEST_VAULT, TEST_KEY);
+    await oldVault.init();
+    await assert.rejects(() => oldVault.load(testSkill.skillId));
+  });
+
   it('cannot decrypt with a different wallet key', async () => {
     const otherVault = new SkillVault(TEST_VAULT, '0x' + 'f'.repeat(64));
     await otherVault.init();
