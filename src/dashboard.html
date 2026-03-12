@@ -150,6 +150,33 @@
   .req-q { font-size: 12px; color: #666; font-style: italic; }
   .req-from { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #ccc; margin-top: 3px; }
 
+  .vault-card {
+    background: #fff; border: 1px solid #e8e6e1; border-radius: 8px;
+    padding: 14px 16px; margin-bottom: 12px; animation: fadeIn 0.4s ease;
+  }
+  .vault-card-header {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
+  }
+  .vault-card-name { font-weight: 600; font-size: 14px; }
+  .vault-card-hash { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #ccc; }
+  .vault-card-meta { font-size: 11px; color: #999; margin-bottom: 8px; }
+  .vault-card-tags { margin-bottom: 8px; }
+  .vault-card-content {
+    background: #1a1a1a; color: #e0ddd5; border-radius: 6px; padding: 12px 14px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.5;
+    max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+  }
+  .vault-card-content::-webkit-scrollbar { width: 6px; }
+  .vault-card-content::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+  .vault-badge {
+    display: inline-block; font-size: 9px; padding: 2px 6px; border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace; margin-left: 8px;
+  }
+  .vault-badge.encrypted { background: #fff3e0; color: #e65100; }
+  .vault-badge.decrypted { background: #e8f5e9; color: #2e7d32; }
+  .vault-badge.xmtp { background: #e3f2fd; color: #1565c0; }
+  .vault-loading { text-align: center; padding: 20px; color: #999; font-size: 12px; }
+
   .log-panel {
     border-top: 1px solid #eeece8; background: #fff;
     max-height: 170px; overflow-y: auto; padding: 6px 48px;
@@ -207,6 +234,13 @@
     <div class="listings" id="listingsPanel">
       <div class="stitle">SKILL LISTINGS</div>
       <div class="empty" id="emptyList">Waiting for listings</div>
+      <div id="vaultPanel" style="margin-top:24px">
+        <div class="stitle" style="display:flex;justify-content:space-between;align-items:center">
+          MY VAULT (DECRYPTED FROM XMTP)
+          <button id="vaultLoadBtn" onclick="loadVault()" style="font-size:10px;padding:3px 10px;border:1px solid #d4c9a8;border-radius:4px;background:#fffdf5;cursor:pointer;font-family:inherit;color:#666">load vault</button>
+        </div>
+        <div id="vaultContents"><div class="empty">click "load vault" to decrypt skills from XMTP messages</div></div>
+      </div>
     </div>
     <div class="sidebar">
       <div>
@@ -428,6 +462,55 @@ es.onmessage = e => {
     requests.push(ev.data); renderReviews();
   }
 };
+
+async function loadVault() {
+  const btn = $('vaultLoadBtn');
+  const el = $('vaultContents');
+  btn.disabled = true;
+  btn.textContent = 'decrypting...';
+  el.innerHTML = '<div class="vault-loading">fetching encrypted messages from XMTP and decrypting...</div>';
+
+  try {
+    const res = await fetch('/api/vault');
+    const data = await res.json();
+    if (!data.skills || !data.skills.length) {
+      el.innerHTML = '<div class="empty">vault is empty</div>';
+      btn.textContent = 'load vault';
+      btn.disabled = false;
+      return;
+    }
+
+    el.innerHTML = data.skills.map(s => {
+      const tags = (s.tags||[]).map(t => `<span class="tag">${esc(t)}</span>`).join('');
+      const size = s.content ? new Blob([s.content]).size : 0;
+      return `<div class="vault-card">
+        <div class="vault-card-header">
+          <div>
+            <span class="vault-card-name">${esc(s.name)}</span>
+            <span class="vault-badge xmtp">XMTP</span>
+            <span class="vault-badge encrypted">AES-256-GCM</span>
+            <span class="vault-badge decrypted">decrypted</span>
+          </div>
+          <span style="font-size:11px;color:#999">v${esc(s.version||'1.0')} | ${size.toLocaleString()} bytes</span>
+        </div>
+        <div class="vault-card-hash">${esc(s.skillId)}</div>
+        <div class="vault-card-meta">${esc(s.description||'')}</div>
+        ${tags ? `<div class="vault-card-tags">${tags}</div>` : ''}
+        <div class="vault-card-content">${s.content ? esc(s.content) : `<span style="color:#ff6b6b">error: ${esc(s.error||'could not decrypt')}</span>`}</div>
+      </div>`;
+    }).join('');
+
+    btn.textContent = `reload (${data.skills.length} skills)`;
+    btn.disabled = false;
+
+    // Update vault count in header
+    $('vaultCount').textContent = data.skills.length;
+  } catch (e) {
+    el.innerHTML = `<div class="empty" style="color:#ff6b6b">failed to load vault: ${esc(e.message)}</div>`;
+    btn.textContent = 'retry';
+    btn.disabled = false;
+  }
+}
 </script>
 </body>
 </html>

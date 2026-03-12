@@ -141,6 +141,27 @@ export class Dashboard {
         return;
       }
 
+      if (url.pathname === '/api/vault') {
+        try {
+          const skills = this.vault.list();
+          const results = [];
+          for (const s of skills) {
+            try {
+              const content = await this.vault.load(s.skillId);
+              results.push({ ...s, content });
+            } catch (e) {
+              results.push({ ...s, content: null, error: e.message });
+            }
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ skills: results }));
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+      }
+
       if (url.pathname === '/' || url.pathname === '/index.html') {
         // HTML ships alongside this file in src/dashboard.html
         const html = await readFile(join(__dirname, 'dashboard.html'), 'utf8');
