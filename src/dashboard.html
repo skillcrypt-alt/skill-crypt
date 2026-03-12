@@ -236,7 +236,7 @@
       <div class="empty" id="emptyList">Waiting for listings</div>
       <div id="vaultPanel" style="margin-top:24px">
         <div class="stitle" style="display:flex;justify-content:space-between;align-items:center">
-          MY VAULT (DECRYPTED FROM XMTP)
+          MY VAULT (ENCRYPTED IN XMTP)
           <button id="vaultLoadBtn" onclick="loadVault()" style="font-size:10px;padding:3px 10px;border:1px solid #d4c9a8;border-radius:4px;background:#fffdf5;cursor:pointer;font-family:inherit;color:#666">load vault</button>
         </div>
         <div id="vaultContents"><div class="empty">click "load vault" to fetch encrypted payloads from XMTP</div></div>
@@ -435,7 +435,7 @@ es.onmessage = e => {
       requests.forEach(r => knownRequestKeys.add(requestKey(r)));
     }
     if (ev.activity) ev.activity.slice(0,20).reverse().forEach(addLog);
-    renderListings(); renderAgents(); renderReviews(); updateStats();
+    renderListings(); renderAgents(); renderReviews(); updateStats(); loadVault();
   }
 
   if (ev.type === 'state-patch') {
