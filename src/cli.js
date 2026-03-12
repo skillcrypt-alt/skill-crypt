@@ -3,74 +3,100 @@
 /**
  * skill-crypt CLI
  *
+ * All commands connect to XMTP because the vault IS your XMTP inbox.
+ * No files on disk. Skills are encrypted messages in a private XMTP group.
+ *
  * Commands:
- *   encrypt <path>              Encrypt a skill file into the vault
- *   decrypt <skill-id>          Decrypt a skill to stdout (never to file)
- *   vault list                  List all skills in the vault
- *   vault find <query>          Search skills by name, tag, or description
- *   vault remove <skill-id>     Remove a skill from the vault
- *   rotate <new-wallet-key>     Re-encrypt all skills with a new wallet key
- *   transfer catalog <address>  Request a skill catalog from another agent
- *   transfer request <address> <skill-id>  Request a skill from another agent
- *   transfer listen             Listen for incoming skill requests and transfers
- *   share create [name]         Create a new Skill Share group
- *   share join <group-id>       Join an existing Skill Share group
- *   share profile [--seeks tag1,tag2]  Post your agent profile
- *   share post [skill-id|--all] Post skill listing(s) to the group
- *   share request <query>       Ask the group for a skill
- *   share browse [--tag x]      Browse current listings
- *   share review <skill> <provider> <1-5> [comment]  Review a skill
- *   share listen [--auto]       Listen for group activity
+ *   store <path>               Encrypt a skill and store in XMTP vault
+ *   load <skill-id>            Decrypt a skill to stdout (memory only)
+ *   list                       List all skills in your XMTP vault
+ *   find <query>               Search skills by name, tag, or description
+ *   remove <skill-id>          Tombstone a skill in the vault
+ *   rotate <new-wallet-key>    Re-encrypt vault with a new wallet key
+ *   transfer catalog <address> Request catalog from another agent
+ *   transfer request <addr> <id>  Request a skill from another agent
+ *   transfer listen            Listen for incoming requests
+ *   share create [name]        Create a Skill Share group
+ *   share join <group-id>      Join a Skill Share group
+ *   share profile [--seeks x]  Post your agent profile
+ *   share post [id|--all]      Post skill listing(s)
+ *   share request <query>      Ask group for a skill
+ *   share browse [--tag x]     Browse listings
+ *   share reviews [--provider] Browse reviews
+ *   share review <s> <a> <1-5> Post a review
+ *   share listen [--auto]      Listen for group activity
  *
  * Environment:
- *   SKILLCRYPT_WALLET_KEY       Wallet private key (required)
- *   SKILLCRYPT_VAULT            Vault directory (default: ./data/vault)
- *   SKILLCRYPT_DATA             Data directory (default: ./data)
- *   SKILLCRYPT_XMTP_ENV         XMTP environment: production or dev (default: production)
- *   SKILLCRYPT_AGENT_NAME       Agent display name (default: anonymous)
+ *   SKILLCRYPT_WALLET_KEY      Wallet private key (required)
+ *   SKILLCRYPT_XMTP_ENV        XMTP environment (default: production)
+ *   SKILLCRYPT_AGENT_NAME      Agent display name (default: anonymous)
+ *   SKILLCRYPT_DATA            Data dir for Skill Share state (default: ./data)
  */
 
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
-import { SkillVault } from './vault.js';
 
-const VAULT_DIR = process.env.SKILLCRYPT_VAULT || './data/vault';
 const DATA_DIR = process.env.SKILLCRYPT_DATA || './data';
 const WALLET_KEY = process.env.SKILLCRYPT_WALLET_KEY;
 const XMTP_ENV = process.env.SKILLCRYPT_XMTP_ENV || 'production';
 const AGENT_NAME = process.env.SKILLCRYPT_AGENT_NAME || 'anonymous';
 
 function usage() {
-  console.log(`skill-crypt: encrypted skill storage, transfer, and discovery
+  console.log(`skill-crypt: skills live in your XMTP inbox, not on disk
 
 Usage:
-  skill-crypt encrypt <path>                    Encrypt a skill file into the vault
-  skill-crypt decrypt <skill-id>                Decrypt a skill to stdout
-  skill-crypt vault list                        List all encrypted skills
-  skill-crypt vault find <query>                Search skills
-  skill-crypt vault remove <skill-id>           Remove a skill
-  skill-crypt rotate <new-wallet-key>           Re-encrypt vault with new key
+  skill-crypt store <path>                     Encrypt and store in XMTP vault
+  skill-crypt load <skill-id>                  Decrypt to stdout (memory only)
+  skill-crypt list                             List vault contents
+  skill-crypt find <query>                     Search skills
+  skill-crypt remove <skill-id>                Remove a skill
+  skill-crypt rotate <new-wallet-key>          Re-encrypt with new key
 
-  skill-crypt transfer catalog <address>        Request skill catalog from agent
-  skill-crypt transfer request <address> <id>   Request a skill from agent
-  skill-crypt transfer listen                   Listen for incoming requests
+  skill-crypt transfer catalog <address>       Request catalog from agent
+  skill-crypt transfer request <address> <id>  Request a skill
+  skill-crypt transfer listen                  Listen for incoming requests
 
-  skill-crypt share create [name]               Create a Skill Share group
-  skill-crypt share join <group-id>             Join a Skill Share group
-  skill-crypt share profile [--seeks t1,t2]     Post your profile
-  skill-crypt share post [skill-id|--all]       Post skill listing(s)
-  skill-crypt share request <query>             Ask the group for a skill
-  skill-crypt share browse [--tag x]            Browse listings
-  skill-crypt share reviews [--provider addr]   Browse reviews
-  skill-crypt share review <skill> <addr> <1-5> [comment]  Post a review
-  skill-crypt share listen [--auto]             Listen for group activity
+  skill-crypt share create [name]              Create a Skill Share group
+  skill-crypt share join <group-id>            Join a group
+  skill-crypt share profile [--seeks t1,t2]    Post your profile
+  skill-crypt share post [skill-id|--all]      Post listing(s)
+  skill-crypt share request <query>            Ask for a skill
+  skill-crypt share browse [--tag x]           Browse listings
+  skill-crypt share reviews [--provider addr]  Browse reviews
+  skill-crypt share review <skill> <addr> <1-5> [comment]
+  skill-crypt share listen [--auto]            Listen for activity
 
 Environment:
   SKILLCRYPT_WALLET_KEY    Wallet private key (required)
-  SKILLCRYPT_VAULT         Vault directory (default: ./data/vault)
-  SKILLCRYPT_DATA          Data directory (default: ./data)
-  SKILLCRYPT_XMTP_ENV      XMTP network: production or dev (default: production)
-  SKILLCRYPT_AGENT_NAME    Agent display name (default: anonymous)`);
+  SKILLCRYPT_XMTP_ENV      XMTP network (default: production)
+  SKILLCRYPT_AGENT_NAME    Agent display name (default: anonymous)
+  SKILLCRYPT_DATA          Data dir for Skill Share state (default: ./data)`);
+}
+
+/**
+ * Connect to XMTP and initialize the vault.
+ * Every command needs this because the vault IS XMTP.
+ */
+async function connect() {
+  const { SkillCryptClient } = await import('./xmtp-client.js');
+  const { XMTPVault } = await import('./xmtp-vault.js');
+
+  const client = new SkillCryptClient({
+    privateKey: WALLET_KEY,
+    env: XMTP_ENV
+  });
+  await client.connect();
+
+  const vault = new XMTPVault({
+    client: client.client,
+    privateKey: WALLET_KEY
+  });
+  await vault.init();
+
+  // Wire the vault into the client for transfer handling
+  client.vault = vault;
+
+  return { client, vault };
 }
 
 async function main() {
@@ -86,84 +112,84 @@ async function main() {
     process.exit(1);
   }
 
-  const vault = new SkillVault(VAULT_DIR, WALLET_KEY);
-  await vault.init();
-
   switch (cmd) {
-    case 'encrypt': {
+    case 'store': {
       const filePath = args[0];
       if (!filePath) {
-        console.error('usage: skill-crypt encrypt <path>');
+        console.error('usage: skill-crypt store <path>');
         process.exit(1);
       }
+      const { vault } = await connect();
       const content = await readFile(filePath, 'utf8');
-      const name = basename(filePath, '.md')
-        .replace(/^SKILL$/, basename(filePath, '.md'))
-        .toLowerCase();
+      const name = basename(filePath, '.md').replace(/^SKILL$/, basename(filePath, '.md')).toLowerCase();
       const skillId = await vault.store(name, content, {
-        description: `encrypted from ${basename(filePath)}`
+        description: `stored from ${basename(filePath)}`
       });
-      console.log(`stored: ${skillId}`);
+      console.log(`stored in XMTP vault: ${skillId}`);
       console.log(`  name: ${name}`);
-      console.log(`  hash: ${vault.manifest.skills[skillId].contentHash}`);
       console.log(`  size: ${content.length} bytes`);
+      console.log(`  location: XMTP inbox (no files on disk)`);
       break;
     }
 
-    case 'decrypt': {
+    case 'load': {
       const skillId = args[0];
       if (!skillId) {
-        console.error('usage: skill-crypt decrypt <skill-id>');
+        console.error('usage: skill-crypt load <skill-id>');
         process.exit(1);
       }
+      const { vault } = await connect();
       const content = await vault.load(skillId);
       process.stdout.write(content);
       break;
     }
 
-    case 'vault': {
-      const sub = args[0];
-      if (sub === 'list') {
-        const skills = vault.list();
-        if (skills.length === 0) {
-          console.log('vault is empty');
-        } else {
-          console.log(`${skills.length} skill(s) in vault:\n`);
-          for (const s of skills) {
-            console.log(`  ${s.skillId}`);
-            console.log(`    name: ${s.name} v${s.version}`);
-            console.log(`    tags: ${s.tags.join(', ') || 'none'}`);
-            console.log(`    size: ${s.size} bytes`);
-            console.log(`    stored: ${s.storedAt}`);
-            console.log('');
-          }
-        }
-      } else if (sub === 'find') {
-        const query = args[1];
-        if (!query) {
-          console.error('usage: skill-crypt vault find <query>');
-          process.exit(1);
-        }
-        const results = vault.find(query);
-        if (results.length === 0) {
-          console.log(`no skills matching "${query}"`);
-        } else {
-          for (const s of results) {
-            console.log(`${s.skillId}  ${s.name}  ${s.description}`);
-          }
-        }
-      } else if (sub === 'remove') {
-        const skillId = args[1];
-        if (!skillId) {
-          console.error('usage: skill-crypt vault remove <skill-id>');
-          process.exit(1);
-        }
-        await vault.remove(skillId);
-        console.log(`removed: ${skillId}`);
+    case 'list': {
+      const { vault } = await connect();
+      const skills = vault.list();
+      if (skills.length === 0) {
+        console.log('vault is empty');
       } else {
-        console.error('usage: skill-crypt vault [list|find|remove]');
+        console.log(`${skills.length} skill(s) in XMTP vault:\n`);
+        for (const s of skills) {
+          console.log(`  ${s.skillId}`);
+          console.log(`    name: ${s.name} v${s.version}`);
+          console.log(`    tags: ${s.tags.join(', ') || 'none'}`);
+          console.log(`    size: ${s.size} bytes`);
+          console.log(`    stored: ${s.storedAt}`);
+          console.log('');
+        }
+      }
+      break;
+    }
+
+    case 'find': {
+      const query = args[0];
+      if (!query) {
+        console.error('usage: skill-crypt find <query>');
         process.exit(1);
       }
+      const { vault } = await connect();
+      const results = vault.find(query);
+      if (results.length === 0) {
+        console.log(`no skills matching "${query}"`);
+      } else {
+        for (const s of results) {
+          console.log(`${s.skillId}  ${s.name}  ${s.description}`);
+        }
+      }
+      break;
+    }
+
+    case 'remove': {
+      const skillId = args[0];
+      if (!skillId) {
+        console.error('usage: skill-crypt remove <skill-id>');
+        process.exit(1);
+      }
+      const { vault } = await connect();
+      await vault.remove(skillId);
+      console.log(`removed: ${skillId}`);
       break;
     }
 
@@ -173,6 +199,7 @@ async function main() {
         console.error('usage: skill-crypt rotate <new-wallet-key>');
         process.exit(1);
       }
+      const { vault } = await connect();
       const skills = vault.list();
       if (skills.length === 0) {
         console.log('vault is empty, nothing to rotate');
@@ -191,12 +218,7 @@ async function main() {
 
     case 'transfer': {
       const sub = args[0];
-      const { SkillCryptClient } = await import('./xmtp-client.js');
-      const client = new SkillCryptClient({
-        privateKey: WALLET_KEY,
-        env: XMTP_ENV
-      });
-      await client.connect(vault);
+      const { client, vault } = await connect();
 
       if (sub === 'catalog') {
         const address = args[1];
@@ -204,7 +226,6 @@ async function main() {
           console.error('usage: skill-crypt transfer catalog <address>');
           process.exit(1);
         }
-        console.log(`requesting catalog from ${address}...`);
         await client.requestCatalog(address);
         console.log('catalog request sent');
       } else if (sub === 'request') {
@@ -214,14 +235,11 @@ async function main() {
           console.error('usage: skill-crypt transfer request <address> <skill-id>');
           process.exit(1);
         }
-        console.log(`requesting skill ${skillId} from ${address}...`);
         await client.requestSkill(address, skillId);
         console.log('skill request sent');
       } else if (sub === 'listen') {
         console.log('listening for incoming skill requests...');
-        await client.listen((msg) => {
-          console.log(`[non-protocol message from ${msg.senderInboxId}]`);
-        });
+        await client.listen();
       } else {
         console.error('usage: skill-crypt transfer [catalog|request|listen]');
         process.exit(1);
@@ -231,14 +249,8 @@ async function main() {
 
     case 'share': {
       const sub = args[0];
-      const { SkillCryptClient } = await import('./xmtp-client.js');
+      const { client, vault } = await connect();
       const { SkillShare } = await import('./skill-share.js');
-
-      const client = new SkillCryptClient({
-        privateKey: WALLET_KEY,
-        env: XMTP_ENV
-      });
-      await client.connect(vault);
 
       const share = new SkillShare({
         client,
@@ -251,7 +263,7 @@ async function main() {
         const name = args[1] || 'Skill Share';
         const groupId = await share.create(name);
         console.log(`created Skill Share group: ${groupId}`);
-        console.log(`share this ID with other agents so they can join`);
+        console.log('share this ID with other agents so they can join');
       } else if (sub === 'join') {
         const groupId = args[1];
         if (!groupId) {
@@ -261,7 +273,6 @@ async function main() {
         await share.join(groupId);
         console.log(`joined Skill Share group: ${groupId}`);
       } else if (sub === 'profile') {
-        // Load state to reconnect to group
         await share._loadState();
         if (!share.groupId) {
           console.error('not connected to a Skill Share group. run: share create or share join');
@@ -274,12 +285,11 @@ async function main() {
         if (seeksIdx >= 0 && args[seeksIdx + 1]) {
           seeks.push(...args[seeksIdx + 1].split(','));
         }
-
         const descIdx = args.indexOf('--desc');
         const description = descIdx >= 0 ? args[descIdx + 1] || '' : '';
 
         await share.postProfile({ seeks, description });
-        console.log(`profile posted to Skill Share`);
+        console.log('profile posted');
       } else if (sub === 'post') {
         await share._loadState();
         if (!share.groupId) {
@@ -379,23 +389,23 @@ async function main() {
         await share.join(share.groupId);
 
         const autoRespond = args.includes('--auto');
-        console.log(`listening to Skill Share group${autoRespond ? ' (auto-respond enabled)' : ''}...`);
+        console.log(`listening to Skill Share${autoRespond ? ' (auto-respond)' : ''}...`);
 
         await share.listen({
           autoRespond,
           onEvent: (type, data) => {
             switch (type) {
               case 'listing':
-                console.log(`[listing] ${data.name} from ${data.address.slice(0, 10)}... (${data.tags.join(', ')})`);
+                console.log(`[listing] ${data.name} from ${data.address.slice(0, 10)}...`);
                 break;
               case 'listing-request':
                 console.log(`[request] "${data.query}" from ${data.address.slice(0, 10)}...`);
                 break;
               case 'profile':
-                console.log(`[profile] ${data.name} (${data.address.slice(0, 10)}...) offers: ${data.offers.join(', ')} seeks: ${data.seeks.join(', ')}`);
+                console.log(`[profile] ${data.name} (${data.address.slice(0, 10)}...)`);
                 break;
               case 'review':
-                console.log(`[review] ${data.skillName} ${'*'.repeat(data.rating)} from ${data.reviewer.slice(0, 10)}...`);
+                console.log(`[review] ${data.skillName} ${'*'.repeat(data.rating)}`);
                 break;
             }
           }
