@@ -4,3 +4,5 @@ node_modules/
 *.key
 .xmtp-*/
 data/
+visualizer/
+src/events.js
