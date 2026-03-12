@@ -239,10 +239,14 @@ async function main() {
         await client.requestSkill(address, skillId);
         console.log('skill request sent, waiting for response...');
 
-        // Poll for the skill transfer response (up to 60s)
-        const { parseMessage, handleMessage } = await import('./transfer.js');
+        // Poll for the two-part transfer response (up to 60s)
+        // Message 1: encrypted payload (skillcrypt:skill-transfer)
+        // Message 2: ephemeral key (skillcrypt:transfer-key)
+        const { parseMessage: parseMsg, MSG_TYPES: TYPES } = await import('./transfer.js');
+        const { decryptTransfer: decryptXfer } = await import('./crypto.js');
         const deadline = Date.now() + 60000;
         let received = false;
+        let pendingTransfer = null;
 
         while (Date.now() < deadline && !received) {
           await new Promise(r => setTimeout(r, 3000));
@@ -251,23 +255,32 @@ async function main() {
           const dms = await client.client.conversations.listDms();
           for (const dm of dms) {
             await dm.sync();
-            const msgs = await dm.messages({ limit: 10 });
+            const msgs = await dm.messages({ limit: 20 });
             for (const m of msgs) {
               if (m.senderInboxId === client.client.inboxId) continue;
               const text = typeof m.content === 'string' ? m.content : m.content?.text;
               if (!text) continue;
-              const parsed = parseMessage(text);
-              if (parsed && parsed.type === 'skillcrypt:skill-transfer' && parsed.skillId === skillId) {
-                await vault.store(parsed.name, parsed.content, {
-                  version: parsed.version,
-                  description: parsed.description,
-                  tags: parsed.tags
+              const parsed = parseMsg(text);
+              if (!parsed) continue;
+
+              if (parsed.type === TYPES.SKILL_TRANSFER && parsed.skillId === skillId) {
+                pendingTransfer = parsed;
+              }
+
+              if (parsed.type === TYPES.TRANSFER_KEY && pendingTransfer &&
+                  parsed.transferId === pendingTransfer.transferId) {
+                const content = decryptXfer(pendingTransfer.payload, parsed.ephemeralKey);
+                await vault.store(pendingTransfer.name, content, {
+                  version: pendingTransfer.version,
+                  description: pendingTransfer.description,
+                  tags: pendingTransfer.tags
                 });
-                console.log(`received and stored: ${parsed.name}`);
+                console.log(`received and stored: ${pendingTransfer.name}`);
                 received = true;
                 break;
               }
-              if (parsed && parsed.type === 'skillcrypt:ack' && !parsed.success) {
+
+              if (parsed.type === TYPES.ACK && !parsed.success) {
                 console.error('provider does not have this skill');
                 received = true;
                 break;

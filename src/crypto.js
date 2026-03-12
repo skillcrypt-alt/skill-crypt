@@ -73,6 +73,39 @@ export function decrypt(payload, key) {
 }
 
 /**
+ * Encrypt skill content for transfer.
+ *
+ * Uses a random ephemeral AES key. The encrypted payload and
+ * the key are returned separately -- they must be sent as two
+ * distinct XMTP messages so the local DB never has both the
+ * ciphertext and key in a single human-readable row.
+ *
+ * @param {string} plaintext - Skill content
+ * @returns {{ payload: string, ephemeralKey: string }}
+ */
+export function encryptForTransfer(plaintext) {
+  const key = randomBytes(32);
+  const encrypted = encrypt(plaintext, key);
+  return {
+    payload: encrypted.toString('base64'),
+    ephemeralKey: key.toString('base64')
+  };
+}
+
+/**
+ * Decrypt a transfer payload with the ephemeral key.
+ *
+ * @param {string} payloadB64 - base64 encrypted payload
+ * @param {string} ephemeralKeyB64 - base64 ephemeral key
+ * @returns {string} Decrypted plaintext
+ */
+export function decryptTransfer(payloadB64, ephemeralKeyB64) {
+  const payload = Buffer.from(payloadB64, 'base64');
+  const key = Buffer.from(ephemeralKeyB64, 'base64');
+  return decrypt(payload, key);
+}
+
+/**
  * Compute a SHA-256 content hash for integrity verification.
  *
  * @param {string} content - Content to hash

@@ -7,12 +7,15 @@
  */
 
 
+import { encryptForTransfer, decryptTransfer } from './crypto.js';
+
 export const MSG_TYPES = {
   // Direct transfer protocol
   CATALOG_REQUEST: 'skillcrypt:catalog-request',
   CATALOG: 'skillcrypt:catalog',
   SKILL_REQUEST: 'skillcrypt:skill-request',
   SKILL_TRANSFER: 'skillcrypt:skill-transfer',
+  TRANSFER_KEY: 'skillcrypt:transfer-key',
   ACK: 'skillcrypt:ack',
 
   // Skill Share (group discovery)
@@ -43,19 +46,40 @@ export function buildCatalog(skills) {
 }
 
 /**
- * Build a skill transfer message with full content.
+ * Build a skill transfer message pair.
+ *
+ * Content is encrypted with a random ephemeral key. Returns two
+ * messages that must be sent separately so the local XMTP DB
+ * never contains both ciphertext and key in one row.
+ *
+ * Message 1: encrypted payload + metadata (no plaintext content)
+ * Message 2: ephemeral key + transfer ID (sent right after)
+ *
+ * @returns {{ transfer: object, keyMsg: object }}
  */
 export function buildTransfer(opts) {
+  const { payload, ephemeralKey } = encryptForTransfer(opts.content);
+  const transferId = opts.contentHash + ':' + Date.now();
+
   return {
-    type: MSG_TYPES.SKILL_TRANSFER,
-    skillId: opts.skillId,
-    name: opts.name,
-    version: opts.version || '1.0.0',
-    description: opts.description || '',
-    tags: opts.tags || [],
-    content: opts.content,
-    contentHash: opts.contentHash,
-    timestamp: new Date().toISOString()
+    transfer: {
+      type: MSG_TYPES.SKILL_TRANSFER,
+      skillId: opts.skillId,
+      name: opts.name,
+      version: opts.version || '1.0.0',
+      description: opts.description || '',
+      tags: opts.tags || [],
+      payload,
+      contentHash: opts.contentHash,
+      transferId,
+      timestamp: new Date().toISOString()
+    },
+    keyMsg: {
+      type: MSG_TYPES.TRANSFER_KEY,
+      transferId,
+      ephemeralKey,
+      timestamp: new Date().toISOString()
+    }
   };
 }
 
@@ -235,7 +259,7 @@ export async function handleMessage(msg, vault, sendFn, context = {}) {
         return;
       }
       const content = await vault.load(msg.skillId);
-      const response = buildTransfer({
+      const { transfer, keyMsg } = buildTransfer({
         skillId: msg.skillId,
         name: entry.name,
         content,
@@ -244,17 +268,34 @@ export async function handleMessage(msg, vault, sendFn, context = {}) {
         description: entry.description,
         tags: entry.tags
       });
-      await sendFn(JSON.stringify(response));
+      // Send encrypted payload first, then key separately
+      // DB never has plaintext -- only ciphertext in one row, key in another
+      await sendFn(JSON.stringify(transfer));
+      await sendFn(JSON.stringify(keyMsg));
       break;
     }
 
     case MSG_TYPES.SKILL_TRANSFER: {
-      await vault.store(msg.name, msg.content, {
-        version: msg.version,
-        description: msg.description,
-        tags: msg.tags
+      // Encrypted transfer -- store pending, wait for key message
+      if (!context._pendingTransfers) context._pendingTransfers = new Map();
+      context._pendingTransfers.set(msg.transferId, msg);
+      break;
+    }
+
+    case MSG_TYPES.TRANSFER_KEY: {
+      if (!context._pendingTransfers) break;
+      const pending = context._pendingTransfers.get(msg.transferId);
+      if (!pending) break;
+      context._pendingTransfers.delete(msg.transferId);
+
+      // Decrypt and store
+      const content = decryptTransfer(pending.payload, msg.ephemeralKey);
+      await vault.store(pending.name, content, {
+        version: pending.version,
+        description: pending.description,
+        tags: pending.tags
       });
-      await sendFn(JSON.stringify(buildAck(msg.skillId, true)));
+      await sendFn(JSON.stringify(buildAck(pending.skillId, true)));
       break;
     }
 

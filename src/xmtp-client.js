@@ -199,7 +199,7 @@ export class SkillCryptClient {
     const content = await this.vault.load(skillId);
 
     const { buildTransfer } = await import('./transfer.js');
-    const payload = buildTransfer({
+    const { transfer, keyMsg } = buildTransfer({
       skillId,
       name: entry.name,
       content,
@@ -209,8 +209,10 @@ export class SkillCryptClient {
       tags: entry.tags
     });
 
-    await this.send(peerAddress, payload);
-    console.log(`[skillcrypt] sent "${entry.name}" to ${peerAddress}`);
+    // Send encrypted payload first, then key separately
+    await this.send(peerAddress, transfer);
+    await this.send(peerAddress, keyMsg);
+    console.log(`[skillcrypt] sent "${entry.name}" to ${peerAddress} (encrypted transfer)`);
   }
 
   /**
