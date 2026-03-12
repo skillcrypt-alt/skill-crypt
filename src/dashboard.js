@@ -101,13 +101,21 @@ export class Dashboard {
         logType = 'review';
         this.broadcast({ type: 'review', data: d });
         this.broadcast({ type: 'state-patch', patch: { reviews: this.share.getReviews() } });
+      } else if (t.includes('join-request') || t.includes('join-denied')) {
+        logAction = `join request: ${d.name || short(d.address)}`;
+        logType = 'oracle';
       } else if (t.includes('request')) {
-        logAction = `requested: "${d.query || d.skillId || '?'}"`;
+        logAction = `looking for: "${d.query || d.skillId || 'skill'}"`;
         logType = 'request';
         this.broadcast({ type: 'request', data: d });
         this.broadcast({ type: 'state-patch', patch: { requests: this.share.requests.slice(-20) } });
       } else if (t.includes('transfer') || t.includes('vault')) {
-        logAction = t.replace('skillcrypt:', '');
+        const skillName = d.name || d.skillName || '';
+        if (t.includes('skill-transfer')) logAction = `sent skill${skillName ? ': ' + skillName : ''}`;
+        else if (t.includes('transfer-key')) logAction = `sent transfer key${skillName ? ' for ' + skillName : ''}`;
+        else if (t.includes('vault:stored')) logAction = `stored: ${skillName}`;
+        else if (t.includes('vault:loaded')) logAction = `loaded: ${skillName}`;
+        else logAction = t.replace('skillcrypt:', '').replace('vault:', '');
         logType = 'transfer';
       } else if (t.includes('oracle')) {
         logAction = t.replace('oracle:', '') + (d.name ? ` (${d.name})` : '');
