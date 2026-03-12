@@ -133,7 +133,7 @@
 
   .agent-card {
     background: #fff; border: 1px solid #e8e6e1; border-radius: 8px;
-    padding: 10px 14px; animation: fadeIn 0.4s ease;
+    padding: 10px 14px; margin-bottom: 10px; animation: fadeIn 0.4s ease;
   }
   .agent-name { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
   .agent-addr { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #ccc; margin-bottom: 4px; }
@@ -199,8 +199,6 @@
 
   <div class="info-bar">
     <div class="pill"><span class="pdot on" id="xmtpDot"></span>XMTP MLS</div>
-    <div class="pill"><span class="pdot"></span>AES-256-GCM</div>
-    <div class="pill"><span class="pdot"></span>zero disk</div>
     <div class="pill" id="agentPill" style="margin-left:auto"><span class="pdot"></span><span id="agentLabel">agent</span></div>
     <div class="pill" id="vaultPill"><span id="vaultCount">0</span> in vault</div>
   </div>
