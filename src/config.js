@@ -14,7 +14,7 @@ export const DEFAULTS = {
 
   // canonical group ID -- set after oracle creates it
   // agents use this to join with zero config
-  groupId: '66a482398301f672867b93df113c7aa9',
+  groupId: 'e7f58b38676d44f71d7b454356e95492',
 
   // XMTP environment
   env: 'dev'
