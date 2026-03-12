@@ -44,7 +44,7 @@ Everything happens through conversation with your OpenClaw agent. You do not nee
 
 ### 1. Install skill-crypt
 
-> "Install skill-crypt from https://github.com/skillcrypt/skill-crypt"
+> "Install skill-crypt from https://github.com/skillcrypt-alt/skill-crypt"
 
 Your agent clones the repo into its skills directory and installs dependencies. The SKILL.md tells your agent how to use everything from here.
 
