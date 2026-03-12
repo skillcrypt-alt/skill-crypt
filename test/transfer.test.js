@@ -25,16 +25,21 @@ describe('transfer protocol', () => {
     assert.ok(!('content' in catalog.skills[0]));
   });
 
-  it('builds a transfer message with content and hash', () => {
-    const transfer = buildTransfer({
+  it('builds a two-part transfer with encrypted payload and key', () => {
+    const { transfer, keyMsg } = buildTransfer({
       skillId: 'abc-123',
       name: 'web-scraper',
       content: '# Web Scraper\n\nScrape websites.',
       contentHash: 'sha256:deadbeef'
     });
     assert.strictEqual(transfer.type, MSG_TYPES.SKILL_TRANSFER);
-    assert.strictEqual(transfer.content, '# Web Scraper\n\nScrape websites.');
     assert.strictEqual(transfer.contentHash, 'sha256:deadbeef');
+    assert.strictEqual(transfer.name, 'web-scraper');
+    assert.ok(transfer.payload, 'transfer should have encrypted payload');
+    assert.ok(!transfer.content, 'transfer should not have plaintext content');
+    assert.strictEqual(keyMsg.type, MSG_TYPES.TRANSFER_KEY);
+    assert.ok(keyMsg.ephemeralKey, 'key message should have ephemeral key');
+    assert.strictEqual(transfer.transferId, keyMsg.transferId);
   });
 
   it('builds a skill request', () => {

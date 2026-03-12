@@ -60,7 +60,7 @@ Now export your environment. Do this at the start of every session:
 ```bash
 export SKILLCRYPT_WALLET_KEY="$(cat data/wallet.key)"
 export SKILLCRYPT_AGENT_NAME="<your name>"
-export SKILLCRYPT_XMTP_ENV="dev"
+export SKILLCRYPT_XMTP_ENV="production"
 export SKILLCRYPT_DATA="data"
 ```
 

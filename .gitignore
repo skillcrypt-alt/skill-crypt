@@ -4,6 +4,6 @@ data/
 *.key
 node_modules/
 .oracle-key
-src/events.js
+
 visualizer/
 .xmtp-*/

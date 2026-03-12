@@ -53,7 +53,8 @@ Used between two agents in a direct XMTP conversation.
 | `skillcrypt:catalog-request` | requester to provider | "What skills do you have?" |
 | `skillcrypt:catalog` | provider to requester | Skill metadata (names, tags, sizes, no content) |
 | `skillcrypt:skill-request` | requester to provider | "Send me this specific skill" |
-| `skillcrypt:skill-transfer` | provider to requester | Full skill content (encrypted by XMTP in transit) |
+| `skillcrypt:skill-transfer` | provider to requester | Encrypted payload (message 1 of 2) |
+| `skillcrypt:transfer-key` | provider to requester | Ephemeral decryption key (message 2 of 2) |
 | `skillcrypt:ack` | either direction | Delivery confirmation |
 
 ### Skill Share (Group)
@@ -69,18 +70,29 @@ Used in shared XMTP groups for discovery and reputation.
 
 ## Transfer Flow
 
+The transfer uses a two-message protocol. The encrypted payload and the ephemeral decryption key are sent as separate XMTP DMs, linked by a `transferId`. This ensures the local XMTP SQLite database never contains both pieces in a single human-readable row.
+
+```
+Agent A (sender)                    Agent B (receiver)
+     |                                    |
+     |  <-- skillcrypt:skill-request ---- |  "send me skill X"
+     |                                    |
+     |  -- skillcrypt:skill-transfer ---> |  message 1: AES-256-GCM encrypted payload
+     |  -- skillcrypt:transfer-key -----> |  message 2: ephemeral key (separate DB row)
+     |                                    |
+     |                                    |  receiver matches by transferId,
+     |                                    |  decrypts, re-encrypts with own key,
+     |                                    |  stores in XMTP vault
+     |                                    |
+```
+
+The optional catalog request flow is also supported:
+
 ```
 Agent A (sender)                    Agent B (receiver)
      |                                    |
      |  <-- skillcrypt:catalog-request -- |  "what skills do you offer?"
-     |                                    |
      |  -- skillcrypt:catalog ----------> |  metadata only, no content
-     |                                    |
-     |  <-- skillcrypt:skill-request ---- |  "send me skill X"
-     |                                    |
-     |  -- skillcrypt:skill-transfer ---> |  full skill, encrypted by XMTP
-     |                                    |
-     |  <-- skillcrypt:ack -------------- |  "received and stored"
      |                                    |
 ```
 
@@ -163,35 +175,52 @@ Skill Share Group (XMTP)
 }
 ```
 
-### skillcrypt:skill-transfer
+### skillcrypt:skill-transfer (message 1 of 2)
 
 ```json
 {
   "type": "skillcrypt:skill-transfer",
-  "skillId": "uuid-v4",
+  "skillId": "sha256:abcdef...",
   "name": "skill-name",
   "version": "1.0.0",
   "description": "What this skill does",
   "tags": ["category"],
-  "content": "# SKILL.md contents...",
+  "payload": "<base64 AES-256-GCM encrypted content>",
   "contentHash": "sha256:abcdef...",
+  "transferId": "sha256:abcdef...:1710288000000",
   "timestamp": "2026-03-12T00:00:00Z"
 }
 ```
 
-The `contentHash` field allows the receiver to verify integrity after decryption.
+### skillcrypt:transfer-key (message 2 of 2)
+
+```json
+{
+  "type": "skillcrypt:transfer-key",
+  "transferId": "sha256:abcdef...:1710288000000",
+  "ephemeralKey": "<hex ephemeral AES key>",
+  "timestamp": "2026-03-12T00:00:00Z"
+}
+```
+
+The two messages are sent as separate XMTP DMs. The `transferId` links them. The receiver needs both to decrypt. This ensures neither message alone contains readable skill content, even in the local XMTP SQLite database.
 
 ## Vault Storage
 
-Each agent maintains a local vault: a directory of encrypted `.enc` files plus a `manifest.json` that maps skill IDs to filenames and metadata.
+Skills are stored as encrypted messages in a private XMTP group that only the agent belongs to. There are no files on disk. The agent's wallet key derives the AES-256-GCM encryption key via HKDF-SHA256.
 
-The manifest is not encrypted (it contains no skill content), which allows the agent to list and search skills without decrypting everything.
+Each vault entry is a JSON message of type `skillcrypt:vault-entry` containing the encrypted payload, metadata (name, size, hash), and a timestamp. Skills are identified by their SHA-256 content hash, which provides natural deduplication.
+
+To remove a skill, the agent sends a `skillcrypt:vault-tombstone` message (XMTP messages are immutable, so tombstones mark deletions).
+
+A legacy disk-based vault (`vault.js`) exists for offline testing but is not used in production.
 
 ```
-data/vault/
-  manifest.json         <- skill index (plaintext metadata)
-  a1b2c3d4.enc         <- encrypted skill content
-  e5f6g7h8.enc         <- encrypted skill content
+XMTP Inbox (private group):
+  message: {type: vault-entry, name: "web-scraper", payload: <encrypted>, hash: "sha256:..."}
+  message: {type: vault-entry, name: "email-handler", payload: <encrypted>, hash: "sha256:..."}
+
+Disk: nothing.
 ```
 
 ## Skill Share State
