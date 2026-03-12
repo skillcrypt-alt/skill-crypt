@@ -4,24 +4,20 @@
  * Connects to the XMTP network using the agent's wallet key.
  * Handles sending and receiving skillcrypt protocol messages
  * through end-to-end encrypted conversations.
- *
- * This module wraps the XMTP Node SDK and provides a simple interface
- * for the skill transfer protocol.
  */
 
-import { Client } from '@xmtp/node-sdk';
-import { Wallet } from 'ethers';
-import { createWalletClient, http, toBytes } from 'viem';
+import { Client, IdentifierKind, LogLevel } from '@xmtp/node-sdk';
+import { toBytes } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { mainnet } from 'viem/chains';
 import { join } from 'node:path';
+import { mkdir } from 'node:fs/promises';
 import { parseMessage, handleMessage } from './transfer.js';
 
 /**
- * Create an XMTP signer from a wallet private key.
+ * Create an XMTP-compatible signer from a hex private key.
  *
- * @param {string} privateKeyHex - Wallet private key (hex)
- * @returns {object} XMTP-compatible signer
+ * @param {string} privateKeyHex - 0x-prefixed hex private key
+ * @returns {object} Signer compatible with XMTP Node SDK
  */
 function createSigner(privateKeyHex) {
   const key = privateKeyHex.startsWith('0x') ? privateKeyHex : `0x${privateKeyHex}`;
@@ -29,13 +25,17 @@ function createSigner(privateKeyHex) {
 
   return {
     type: 'EOA',
-    getIdentifier: () => ({
-      identifier: account.address.toLowerCase(),
-      identifierKind: 'Ethereum'
-    }),
-    signMessage: async (message) => {
-      const signature = await account.signMessage({ message });
-      return toBytes(signature);
+    getIdentifier() {
+      return {
+        identifier: account.address.toLowerCase(),
+        identifierKind: 0  // Ethereum
+      };
+    },
+    async signMessage(message) {
+      const sig = await account.signMessage({
+        message: typeof message === 'string' ? message : { raw: message }
+      });
+      return toBytes(sig);
     }
   };
 }
@@ -44,72 +44,88 @@ export class SkillCryptClient {
   /**
    * @param {object} opts
    * @param {string} opts.privateKey - Wallet private key (hex)
-   * @param {string} [opts.dbPath] - Directory for XMTP database files
+   * @param {string} [opts.dbDir] - Directory for XMTP database files
    * @param {string} [opts.env] - XMTP environment: "production" or "dev"
    */
   constructor(opts) {
     this.privateKey = opts.privateKey;
-    this.dbPath = opts.dbPath || './data/xmtp';
-    this.env = opts.env || 'production';
+    this.dbDir = opts.dbDir || './data/xmtp';
+    this.env = opts.env || 'dev';
     this.client = null;
     this.vault = null;
+    this.address = null;
   }
 
   /**
    * Connect to the XMTP network.
    *
-   * @param {SkillVault} vault - Local vault for handling incoming transfers
+   * @param {SkillVault} [vault] - Local vault for handling incoming transfers
+   * @returns {SkillCryptClient}
    */
   async connect(vault) {
-    this.vault = vault;
+    this.vault = vault || null;
     const signer = createSigner(this.privateKey);
-    const address = signer.getIdentifier().identifier;
+    this.address = signer.getIdentifier().identifier;
 
-    // Use deterministic database path to avoid hitting installation limits
-    const dbPath = join(this.dbPath, `skillcrypt-${address.slice(0, 8)}.db`);
+    await mkdir(this.dbDir, { recursive: true });
+
+    // deterministic db path per wallet to avoid installation limit
+    const dbPath = join(this.dbDir, `skillcrypt-${this.address.slice(0, 10)}.db`);
 
     this.client = await Client.create(signer, {
       env: this.env,
-      dbPath
+      dbPath,
+      logLevel: LogLevel.off
     });
 
-    console.log(`[skillcrypt] connected as ${address}`);
+    if (!this.client.isRegistered) {
+      await this.client.register();
+    }
+
+    console.log(`[skillcrypt] connected: ${this.address} (${this.env})`);
     return this;
   }
 
   /**
-   * Send a skillcrypt protocol message to another agent.
+   * Send a skillcrypt protocol message to another agent via DM.
    *
    * @param {string} peerAddress - Recipient wallet address
-   * @param {object} payload - Protocol message object (will be JSON.stringified)
+   * @param {object} payload - Protocol message object
    */
   async send(peerAddress, payload) {
-    const canMessage = await this.client.canMessage([peerAddress]);
-    if (!canMessage.get(peerAddress.toLowerCase())) {
+    const peer = peerAddress.toLowerCase();
+    const identifier = { identifier: peer, identifierKind: 0 };
+    const canMsg = await this.client.canMessage([identifier]);
+
+    if (!canMsg.get(peer)) {
       throw new Error(`peer not reachable on XMTP: ${peerAddress}`);
     }
 
-    const conversation = await this.client.conversations.newDm(peerAddress);
-    await conversation.sendText(JSON.stringify(payload));
+    const dm = await this.client.conversations.createDmWithIdentifier(
+      { identifier: peer, identifierKind: 0 }
+    );
+    await dm.sync();
+    await dm.sendText(JSON.stringify(payload));
   }
 
   /**
    * Request a skill catalog from another agent.
    *
-   * @param {string} peerAddress - Target agent's wallet address
+   * @param {string} peerAddress
    */
   async requestCatalog(peerAddress) {
     await this.send(peerAddress, {
       type: 'skillcrypt:catalog-request',
       timestamp: new Date().toISOString()
     });
+    console.log(`[skillcrypt] catalog requested from ${peerAddress}`);
   }
 
   /**
    * Request a specific skill from another agent.
    *
-   * @param {string} peerAddress - Target agent's wallet address
-   * @param {string} skillId - ID of the skill to request
+   * @param {string} peerAddress
+   * @param {string} skillId
    */
   async requestSkill(peerAddress, skillId) {
     await this.send(peerAddress, {
@@ -117,68 +133,107 @@ export class SkillCryptClient {
       skillId,
       timestamp: new Date().toISOString()
     });
+    console.log(`[skillcrypt] skill ${skillId} requested from ${peerAddress}`);
   }
 
   /**
    * Start listening for incoming skillcrypt messages.
-   * Processes catalog requests, skill requests, and incoming transfers.
+   * Processes catalog requests, skill requests, and transfers automatically.
    *
-   * @param {function} [onMessage] - Optional callback for non-protocol messages
+   * @param {function} [onEvent] - Optional callback for events: onEvent(type, data)
    */
-  async listen(onMessage) {
-    console.log('[skillcrypt] listening for incoming messages');
+  async listen(onEvent) {
+    console.log('[skillcrypt] listening for messages...');
 
     await this.client.conversations.sync();
-    const stream = this.client.conversations.streamAllMessages();
+
+    const stream = await this.client.conversations.streamAllMessages();
 
     for await (const message of stream) {
-      // skip our own messages
+      // skip own messages
       if (message.senderInboxId === this.client.inboxId) continue;
 
-      const text = message.content;
-      if (typeof text !== 'string') continue;
+      // extract text content from decoded message
+      let text = null;
+      if (typeof message.content === 'string') {
+        text = message.content;
+      } else if (message.content?.text) {
+        text = message.content.text;
+      } else if (typeof message.content === 'object') {
+        try { text = JSON.stringify(message.content); } catch {}
+      }
+
+      if (!text) continue;
 
       const parsed = parseMessage(text);
       if (parsed && this.vault) {
+        if (onEvent) onEvent('message:in', { type: parsed.type, from: message.senderInboxId });
+
         const conversation = await this.client.conversations.getConversationById(
           message.conversationId
         );
+
         await handleMessage(parsed, this.vault, async (response) => {
           await conversation.sendText(response);
+          if (onEvent) {
+            const resp = JSON.parse(response);
+            onEvent('message:out', { type: resp.type });
+          }
         });
-      } else if (onMessage) {
-        onMessage(message);
       }
     }
   }
 
   /**
-   * Get the agent's wallet address.
+   * Send a skill from the local vault to another agent.
+   *
+   * @param {string} peerAddress - Recipient wallet address
+   * @param {string} skillId - ID of skill in the vault
+   */
+  async sendSkill(peerAddress, skillId) {
+    if (!this.vault) throw new Error('no vault connected');
+
+    const entry = this.vault.manifest.skills[skillId];
+    if (!entry) throw new Error(`skill not found: ${skillId}`);
+
+    const content = await this.vault.load(skillId);
+
+    const { buildTransfer } = await import('./transfer.js');
+    const payload = buildTransfer({
+      skillId,
+      name: entry.name,
+      content,
+      contentHash: entry.contentHash,
+      version: entry.version,
+      description: entry.description,
+      tags: entry.tags
+    });
+
+    await this.send(peerAddress, payload);
+    console.log(`[skillcrypt] sent "${entry.name}" to ${peerAddress}`);
+  }
+
+  /**
+   * Get the connected wallet address.
    *
    * @returns {string}
    */
   getAddress() {
-    if (!this.client) throw new Error('not connected');
-    return this.client.accountAddress;
+    return this.address;
   }
 
   /**
-   * Check if a peer address is reachable on XMTP.
+   * Check if a peer is reachable on XMTP.
    *
    * @param {string} peerAddress
    * @returns {boolean}
    */
   async canReach(peerAddress) {
-    const result = await this.client.canMessage([peerAddress]);
+    const identifier = {
+      identifier: peerAddress.toLowerCase(),
+      identifierKind: 0  // Ethereum
+    };
+    const result = await this.client.canMessage([identifier]);
     return result.get(peerAddress.toLowerCase()) || false;
-  }
-
-  /**
-   * Disconnect from the XMTP network.
-   */
-  async disconnect() {
-    // XMTP Node SDK handles cleanup on process exit
-    this.client = null;
-    console.log('[skillcrypt] disconnected');
   }
 }
