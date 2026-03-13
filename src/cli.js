@@ -35,9 +35,9 @@
 
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
+import { loadKeyGuarded, KeyGuard } from './key-guard.js';
 
 const DATA_DIR = process.env.SKILLCRYPT_DATA || './data';
-const WALLET_KEY = process.env.SKILLCRYPT_WALLET_KEY;
 const XMTP_ENV = process.env.SKILLCRYPT_XMTP_ENV || 'production';
 const AGENT_NAME = process.env.SKILLCRYPT_AGENT_NAME || 'anonymous';
 
@@ -45,6 +45,7 @@ function usage() {
   console.log(`skill-crypt: skills live in your XMTP inbox, not on disk
 
 Usage:
+  skill-crypt init                             Generate wallet + encrypt key at rest
   skill-crypt store <path>                     Encrypt and store in XMTP vault
   skill-crypt load <skill-id>                  Decrypt to stdout (memory only)
   skill-crypt list                             List vault contents
@@ -66,8 +67,14 @@ Usage:
   skill-crypt share review <skill> <addr> <1-5> [comment]
   skill-crypt share listen [--auto]            Listen for activity
 
+Key management:
+  On first run, 'init' generates a wallet and encrypts the private key at rest
+  using a device-bound secret (machine-id + salt via scrypt + AES-256-GCM).
+  All key access is IP-gated to private network ranges only.
+  Existing SKILLCRYPT_WALLET_KEY env vars are auto-migrated to encrypted storage.
+
 Environment:
-  SKILLCRYPT_WALLET_KEY    Wallet private key (required)
+  SKILLCRYPT_WALLET_KEY    Wallet private key (auto-migrated to encrypted storage)
   SKILLCRYPT_XMTP_ENV      XMTP network (default: production)
   SKILLCRYPT_AGENT_NAME    Agent display name (default: anonymous)
   SKILLCRYPT_DATA          Data dir for Skill Share state (default: ./data)`);
@@ -76,20 +83,22 @@ Environment:
 /**
  * Connect to XMTP and initialize the vault.
  * Every command needs this because the vault IS XMTP.
+ * Key is decrypted at runtime through the guard — never plaintext on disk.
  */
 async function connect() {
+  const { key } = loadKeyGuarded(DATA_DIR);
   const { SkillCryptClient } = await import('./xmtp-client.js');
   const { XMTPVault } = await import('./xmtp-vault.js');
 
   const client = new SkillCryptClient({
-    privateKey: WALLET_KEY,
+    privateKey: key,
     env: XMTP_ENV
   });
   await client.connect();
 
   const vault = new XMTPVault({
     client: client.client,
-    privateKey: WALLET_KEY,
+    privateKey: key,
     dbDir: client.dbDir
   });
   await vault.init();
@@ -108,9 +117,46 @@ async function main() {
     return;
   }
 
-  if (!WALLET_KEY) {
-    console.error('error: SKILLCRYPT_WALLET_KEY environment variable is required');
-    process.exit(1);
+  // init doesn't need an existing key
+  if (cmd === 'init') {
+    const guard = new KeyGuard(DATA_DIR);
+    if (guard.hasKey()) {
+      // show address of existing key
+      const key = guard.readKey('127.0.0.1', 'init-check');
+      const { Wallet } = await import('ethers');
+      const wallet = new Wallet(key);
+      console.log('wallet already initialized');
+      console.log(`  address: ${wallet.address}`);
+      console.log(`  key: encrypted at rest (${DATA_DIR}/.wallet-key.enc)`);
+      console.log(`  guard: device-bound AES-256-GCM + IP whitelist`);
+      return;
+    }
+
+    // check if env var is set — migrate it
+    const envKey = process.env.SKILLCRYPT_WALLET_KEY;
+    if (envKey) {
+      guard.storeKey(envKey);
+      const { Wallet } = await import('ethers');
+      const wallet = new Wallet(envKey);
+      console.log('migrated SKILLCRYPT_WALLET_KEY to encrypted storage');
+      console.log(`  address: ${wallet.address}`);
+      console.log(`  key: encrypted at rest (${DATA_DIR}/.wallet-key.enc)`);
+      console.log(`  guard: device-bound AES-256-GCM + IP whitelist`);
+      console.log('\nyou can remove SKILLCRYPT_WALLET_KEY from your environment now');
+      return;
+    }
+
+    // generate fresh wallet
+    const { address } = guard.generateAndStore();
+    console.log('wallet generated and encrypted');
+    console.log(`  address: ${address}`);
+    console.log(`  key: encrypted at rest (${DATA_DIR}/.wallet-key.enc)`);
+    console.log(`  guard: device-bound AES-256-GCM + IP whitelist`);
+    console.log(`  salt: ${DATA_DIR}/.key-salt`);
+    console.log(`  log: ${DATA_DIR}/key-access.log`);
+    console.log('\nthe private key never exists in plaintext on disk.');
+    console.log('it is decrypted in memory at runtime, gated by IP whitelist.');
+    return;
   }
 
   switch (cmd) {
