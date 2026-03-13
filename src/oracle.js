@@ -90,8 +90,22 @@ export class SkillShareOracle {
       throw new Error('no group ID in state -- run createGroup first');
     }
 
-    await this.client.client.conversations.sync();
-    this.group = await this.client.client.conversations.getConversationById(this.groupId);
+    // retry sync — XMTP sometimes needs a moment to propagate groups
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await this.client.client.conversations.sync();
+      this.group = await this.client.client.conversations.getConversationById(this.groupId);
+      if (this.group) break;
+      if (attempt < 2) {
+        console.log(`[oracle] group not found yet, retrying in 3s... (${attempt + 1}/3)`);
+        await new Promise(r => setTimeout(r, 3000));
+      }
+    }
+
+    // last resort: list all conversations and find by ID
+    if (!this.group) {
+      const convos = await this.client.client.conversations.list();
+      this.group = convos.find(c => c.id === this.groupId) || null;
+    }
 
     if (!this.group) {
       throw new Error(`group not found: ${this.groupId}`);
