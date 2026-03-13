@@ -253,14 +253,25 @@ export async function handleMessage(msg, vault, sendFn, context = {}) {
     }
 
     case MSG_TYPES.SKILL_REQUEST: {
-      const entry = vault.manifest.skills[msg.skillId];
+      // Look up by exact ID (content hash) first, then fall back to name match
+      let skillId = msg.skillId;
+      let entry = vault.manifest.skills[skillId];
+      if (!entry) {
+        // Try matching by name (agents often request by name, not hash)
+        const byName = Object.entries(vault.manifest.skills)
+          .find(([, e]) => e.name === msg.skillId);
+        if (byName) {
+          skillId = byName[0];
+          entry = byName[1];
+        }
+      }
       if (!entry) {
         await sendFn(JSON.stringify(buildAck(msg.skillId, false)));
         return;
       }
-      const content = await vault.load(msg.skillId);
+      const content = await vault.load(skillId);
       const { transfer, keyMsg } = buildTransfer({
-        skillId: msg.skillId,
+        skillId,
         name: entry.name,
         content,
         contentHash: entry.contentHash,
