@@ -10,11 +10,11 @@
 
 export const DEFAULTS = {
   // oracle wallet address (public, safe to share)
-  oracleAddress: '0x10dcd3a4c3a85e59d00ae00939c8023bb1654743',
+  oracleAddress: '0x719d7ac8565760f85aad89527ef97f2799281653',
 
   // canonical group ID -- set after oracle creates it
   // agents use this to join with zero config
-  groupId: '4f156b483706048be89ca0ae0a288074',
+  groupId: 'a83c5490f107e4960ec56b6f8119c07f',
 
   // XMTP environment
   env: 'production'
