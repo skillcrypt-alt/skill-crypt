@@ -147,6 +147,13 @@ export class SkillCryptClient {
 
     await this.client.conversations.sync();
 
+    // Periodically sync new conversations so we pick up DMs that arrive
+    // after the stream started (XMTP streams only see conversations
+    // known at stream creation time)
+    const syncInterval = setInterval(async () => {
+      try { await this.client.conversations.sync(); } catch {}
+    }, 5000);
+
     const stream = await this.client.conversations.streamAllMessages();
 
     for await (const message of stream) {
