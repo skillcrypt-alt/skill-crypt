@@ -268,7 +268,8 @@ async function main() {
               const parsed = parseMsg(text);
               if (!parsed) continue;
 
-              if (parsed.type === TYPES.SKILL_TRANSFER && parsed.skillId === skillId) {
+              if (parsed.type === TYPES.SKILL_TRANSFER &&
+                  (parsed.skillId === skillId || parsed.name === skillId)) {
                 pendingTransfer = parsed;
               }
 
