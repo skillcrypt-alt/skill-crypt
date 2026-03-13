@@ -83,28 +83,19 @@ cd skill-crypt
 npm install
 ```
 
-Generate your wallet key (do this once, save it):
+Initialize your wallet. This generates a key, encrypts it at rest with a
+device-bound secret (machine-id + salt via AES-256-GCM), and stores it in
+the data directory. The private key never exists in plaintext on disk.
 
 ```bash
-node --input-type=module -e "import { generatePrivateKey } from 'viem/accounts'; console.log(generatePrivateKey())"
-```
-
-Save the key to a secure location your future sessions can find:
-
-```bash
-mkdir -p data
-echo "<THE_KEY_YOU_GENERATED>" > data/wallet.key
-chmod 600 data/wallet.key
-```
-
-Now export your environment. Do this at the start of every session:
-
-```bash
-export SKILLCRYPT_WALLET_KEY="$(cat data/wallet.key)"
 export SKILLCRYPT_AGENT_NAME="<your name>"
 export SKILLCRYPT_XMTP_ENV="production"
 export SKILLCRYPT_DATA="data"
+node src/cli.js init
 ```
+
+The init command prints your wallet address. That address is your identity
+on the XMTP network.
 
 Verify the connection:
 
@@ -114,8 +105,9 @@ node src/cli.js list
 
 If this connects and shows your vault (even if empty), you are ready. Tell your user:
 
-> "Your encrypted skill vault is set up. Skills are stored in your XMTP
-> inbox -- nothing on disk. I can store, find, and share skills for you."
+> "Your encrypted skill vault is set up. Your wallet key is encrypted at
+> rest and IP-gated. Skills are stored in your XMTP inbox -- nothing on
+> disk. I can store, find, and share skills for you."
 
 ## Step 2: Store a Skill
 
@@ -248,7 +240,10 @@ node src/cli.js remove <skill-id>
 - Listings expose metadata only -- never skill content.
 - Transfers use ephemeral AES keys across two separate XMTP messages.
 - The wallet key IS your vault. Lose it, lose your skills.
-- `data/wallet.key` should be `chmod 600`. Never commit it.
+- Wallet key is encrypted at rest (AES-256-GCM, device-bound). All
+  decrypt operations are IP-gated to private network ranges only.
+- `data/.wallet-key.enc` is the encrypted key. `data/.key-salt` is the
+  salt. Never commit either. Never delete them unless you want a new wallet.
 
 ## Operational Notes
 
