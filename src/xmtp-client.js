@@ -179,36 +179,25 @@ export class SkillCryptClient {
       }
     };
 
-    // Stream messages from all existing conversations
-    const stream = await this.client.conversations.streamAllMessages();
+    // streamAllMessages misses DMs from new conversations (XMTP SDK bug).
+    // Fix: use streamAllGroupMessages for groups + streamAllDmMessages for DMs.
+    const groupStream = await this.client.conversations.streamAllGroupMessages();
     (async () => {
-      for await (const message of stream) {
+      for await (const message of groupStream) {
         try { await processMessage(message); } catch (e) {
-          console.error('[skillcrypt] message handler error:', e.message);
+          console.error('[skillcrypt] group message error:', e.message);
         }
       }
     })();
 
-    // Poll for new conversations (DMs created after stream started)
-    // streamAllMessages misses messages from conversations created after
-    // the stream was initialized -- XMTP SDK limitation
-    const seen = new Set();
-    setInterval(async () => {
-      try {
-        await this.client.conversations.sync();
-        const convos = await this.client.conversations.list();
-        for (const convo of convos) {
-          if (seen.has(convo.id)) continue;
-          seen.add(convo.id);
-          // Check for unprocessed messages in new conversations
-          await convo.sync();
-          const messages = await convo.messages();
-          for (const msg of messages) {
-            try { await processMessage(msg); } catch {}
-          }
+    const dmStream = await this.client.conversations.streamAllDmMessages();
+    (async () => {
+      for await (const message of dmStream) {
+        try { await processMessage(message); } catch (e) {
+          console.error('[skillcrypt] DM message error:', e.message);
         }
-      } catch {}
-    }, 3000);
+      }
+    })();
 
     // Keep alive
     await new Promise(() => {});
