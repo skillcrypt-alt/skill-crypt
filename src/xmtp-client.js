@@ -147,20 +147,9 @@ export class SkillCryptClient {
 
     await this.client.conversations.sync();
 
-    // Periodically sync new conversations so we pick up DMs that arrive
-    // after the stream started (XMTP streams only see conversations
-    // known at stream creation time)
-    const syncInterval = setInterval(async () => {
-      try { await this.client.conversations.sync(); } catch {}
-    }, 5000);
+    const processMessage = async (message) => {
+      if (message.senderInboxId === this.client.inboxId) return;
 
-    const stream = await this.client.conversations.streamAllMessages();
-
-    for await (const message of stream) {
-      // skip own messages
-      if (message.senderInboxId === this.client.inboxId) continue;
-
-      // extract text content from decoded message
       let text = null;
       if (typeof message.content === 'string') {
         text = message.content;
@@ -170,7 +159,7 @@ export class SkillCryptClient {
         try { text = JSON.stringify(message.content); } catch {}
       }
 
-      if (!text) continue;
+      if (!text) return;
 
       const parsed = parseMessage(text);
       if (parsed && this.vault) {
@@ -188,7 +177,41 @@ export class SkillCryptClient {
           }
         });
       }
-    }
+    };
+
+    // Stream messages from all existing conversations
+    const stream = await this.client.conversations.streamAllMessages();
+    (async () => {
+      for await (const message of stream) {
+        try { await processMessage(message); } catch (e) {
+          console.error('[skillcrypt] message handler error:', e.message);
+        }
+      }
+    })();
+
+    // Poll for new conversations (DMs created after stream started)
+    // streamAllMessages misses messages from conversations created after
+    // the stream was initialized -- XMTP SDK limitation
+    const seen = new Set();
+    setInterval(async () => {
+      try {
+        await this.client.conversations.sync();
+        const convos = await this.client.conversations.list();
+        for (const convo of convos) {
+          if (seen.has(convo.id)) continue;
+          seen.add(convo.id);
+          // Check for unprocessed messages in new conversations
+          await convo.sync();
+          const messages = await convo.messages();
+          for (const msg of messages) {
+            try { await processMessage(msg); } catch {}
+          }
+        }
+      } catch {}
+    }, 3000);
+
+    // Keep alive
+    await new Promise(() => {});
   }
 
   /**
