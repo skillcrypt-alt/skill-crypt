@@ -74,6 +74,7 @@
   .main {
     display: grid;
     grid-template-columns: 1fr 300px;
+    grid-template-rows: 1fr auto;
     gap: 0;
     padding: 0 48px;
     min-height: 0;
@@ -81,6 +82,13 @@
   }
 
   .listings { overflow-y: auto; padding-right: 20px; }
+
+  .vault-section {
+    grid-column: 1 / -1;
+    padding: 16px 0;
+    max-height: 350px;
+    overflow-y: auto;
+  }
 
   .stitle {
     font-size: 9px; font-weight: 700; letter-spacing: 2.5px;
@@ -234,13 +242,6 @@
     <div class="listings" id="listingsPanel">
       <div class="stitle">SKILL LISTINGS</div>
       <div class="empty" id="emptyList">Waiting for listings</div>
-      <div id="vaultPanel" style="margin-top:24px">
-        <div class="stitle" style="display:flex;justify-content:space-between;align-items:center">
-          MY VAULT (ENCRYPTED IN XMTP)
-          <button id="vaultLoadBtn" onclick="loadVault()" style="font-size:10px;padding:3px 10px;border:1px solid #d4c9a8;border-radius:4px;background:#fffdf5;cursor:pointer;font-family:inherit;color:#666">load vault</button>
-        </div>
-        <div id="vaultContents"><div class="empty">click "load vault" to fetch encrypted payloads from XMTP</div></div>
-      </div>
     </div>
     <div class="sidebar">
       <div>
@@ -251,6 +252,16 @@
         <div class="stitle">REVIEWS</div>
         <div id="reviewsPanel"><div class="empty">No reviews yet</div></div>
       </div>
+    </div>
+  </div>
+
+  <div class="vault-section">
+    <div style="padding:0 48px">
+      <div class="stitle" style="display:flex;justify-content:space-between;align-items:center">
+        MY VAULT (ENCRYPTED IN XMTP)
+        <button id="vaultLoadBtn" onclick="loadVault()" style="font-size:10px;padding:3px 10px;border:1px solid #d4c9a8;border-radius:4px;background:#fffdf5;cursor:pointer;font-family:inherit;color:#666">reload</button>
+      </div>
+      <div id="vaultContents"><div class="empty">loading vault...</div></div>
     </div>
   </div>
 
