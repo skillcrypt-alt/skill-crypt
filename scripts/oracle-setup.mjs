@@ -16,6 +16,8 @@
  */
 
 import { SkillShareOracle } from '../src/oracle.js';
+import { XMTPVault } from '../src/xmtp-vault.js';
+import { SkillShare } from '../src/skill-share.js';
 
 const key = process.env.SKILLCRYPT_ORACLE_KEY;
 if (!key) {
@@ -23,7 +25,7 @@ if (!key) {
   process.exit(1);
 }
 
-const env = process.env.SKILLCRYPT_XMTP_ENV || 'dev';
+const env = process.env.SKILLCRYPT_XMTP_ENV || 'production';
 const dataDir = process.env.SKILLCRYPT_DATA || './data/oracle';
 const cmd = process.argv[2] || '--listen';
 
@@ -51,6 +53,36 @@ if (cmd === '--create') {
 
 } else if (cmd === '--listen') {
   await oracle.resumeGroup();
+
+  // start dashboard if --dashboard flag is present
+  if (process.argv.includes('--dashboard')) {
+    const dashPort = parseInt(process.argv[process.argv.indexOf('--port') + 1]) || 8099;
+
+    // create vault + share instances for the dashboard
+    const vault = new XMTPVault({ client: oracle.client.client, privateKey: key });
+    await vault.init();
+
+    const share = new SkillShare({
+      client: oracle.client, vault, dataDir, agentName: 'oracle'
+    });
+    // use the oracle's already-resolved group directly
+    share.groupId = oracle.groupId;
+    share.group = oracle.group;
+
+    const { Dashboard } = await import('../src/dashboard.js');
+    const dash = new Dashboard({
+      vault, share,
+      agentName: 'oracle',
+      address: oracle.client.getAddress(),
+      port: dashPort
+    });
+    dash.start();
+
+    // start share listener in background so dashboard indexes group messages
+    await share.syncHistory();
+    share.listen({ autoRespond: false, onEvent: () => {} }).catch(() => {});
+  }
+
   console.log(`\noracle listening. agents can DM ${oracle.client.getAddress()} to request access.\n`);
 
   await oracle.listen({

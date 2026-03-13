@@ -241,63 +241,98 @@ async function main() {
           console.error('usage: skill-crypt transfer request <address> <skill-id>');
           process.exit(1);
         }
-        await client.requestSkill(address, skillId);
-        console.log('skill request sent, waiting for response...');
 
-        // Poll for the two-part transfer response (up to 60s)
-        // Message 1: encrypted payload (skillcrypt:skill-transfer)
-        // Message 2: ephemeral key (skillcrypt:transfer-key)
-        const { parseMessage: parseMsg, MSG_TYPES: TYPES } = await import('./transfer.js');
-        const { decryptTransfer: decryptXfer } = await import('./crypto.js');
-        const deadline = Date.now() + 60000;
-        let received = false;
-        let pendingTransfer = null;
+        // Try routing through the local listener's dashboard API first.
+        // This avoids creating a second XMTP client (which steals the connection).
+        const dashPorts = [8200, 8201, 8202, 8203, 8099];
+        const portArg = args[args.indexOf('--port') + 1];
+        if (portArg) dashPorts.unshift(parseInt(portArg));
 
-        while (Date.now() < deadline && !received) {
-          await new Promise(r => setTimeout(r, 3000));
-          await client.client.conversations.sync();
+        let routed = false;
+        for (const port of dashPorts) {
+          try {
+            // Probe the dashboard to check it's ours
+            const probe = await fetch(`http://127.0.0.1:${port}/api/state`);
+            if (!probe.ok) continue;
+            const state = await probe.json();
+            if (state.agent?.address?.toLowerCase() !== client.getAddress()?.toLowerCase()) continue;
 
-          const dms = await client.client.conversations.listDms();
-          for (const dm of dms) {
-            await dm.sync();
-            const msgs = await dm.messages({ limit: 20 });
-            for (const m of msgs) {
-              if (m.senderInboxId === client.client.inboxId) continue;
-              const text = typeof m.content === 'string' ? m.content : m.content?.text;
-              if (!text) continue;
-              const parsed = parseMsg(text);
-              if (!parsed) continue;
-
-              if (parsed.type === TYPES.SKILL_TRANSFER &&
-                  (parsed.skillId === skillId || parsed.name === skillId)) {
-                pendingTransfer = parsed;
-              }
-
-              if (parsed.type === TYPES.TRANSFER_KEY && pendingTransfer &&
-                  parsed.transferId === pendingTransfer.transferId) {
-                const content = decryptXfer(pendingTransfer.payload, parsed.ephemeralKey);
-                await vault.store(pendingTransfer.name, content, {
-                  version: pendingTransfer.version,
-                  description: pendingTransfer.description,
-                  tags: pendingTransfer.tags
-                });
-                console.log(`received and stored: ${pendingTransfer.name}`);
-                received = true;
-                break;
-              }
-
-              if (parsed.type === TYPES.ACK && !parsed.success) {
-                console.error('provider does not have this skill');
-                received = true;
-                break;
-              }
+            console.log(`[routing transfer through listener on :${port}]`);
+            const resp = await fetch(`http://127.0.0.1:${port}/api/transfer`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ address, skillId })
+            });
+            const result = await resp.json();
+            if (resp.ok && result.success) {
+              console.log(`received and stored: ${result.name}`);
+            } else {
+              console.error(result.error || 'transfer failed');
             }
-            if (received) break;
+            routed = true;
+            break;
+          } catch {
+            // dashboard not on this port, try next
           }
         }
 
-        if (!received) {
-          console.error('timed out waiting for skill transfer. is the provider listening?');
+        if (!routed) {
+          // No listener running — fall back to direct XMTP (original behavior)
+          await client.requestSkill(address, skillId);
+          console.log('skill request sent, waiting for response...');
+
+          const { parseMessage: parseMsg, MSG_TYPES: TYPES } = await import('./transfer.js');
+          const { decryptTransfer: decryptXfer } = await import('./crypto.js');
+          const deadline = Date.now() + 60000;
+          let received = false;
+          let pendingTransfer = null;
+
+          while (Date.now() < deadline && !received) {
+            await new Promise(r => setTimeout(r, 3000));
+            await client.client.conversations.sync();
+
+            const dms = await client.client.conversations.listDms();
+            for (const dm of dms) {
+              await dm.sync();
+              const msgs = await dm.messages({ limit: 20 });
+              for (const m of msgs) {
+                if (m.senderInboxId === client.client.inboxId) continue;
+                const text = typeof m.content === 'string' ? m.content : m.content?.text;
+                if (!text) continue;
+                const parsed = parseMsg(text);
+                if (!parsed) continue;
+
+                if (parsed.type === TYPES.SKILL_TRANSFER &&
+                    (parsed.skillId === skillId || parsed.name === skillId)) {
+                  pendingTransfer = parsed;
+                }
+
+                if (parsed.type === TYPES.TRANSFER_KEY && pendingTransfer &&
+                    parsed.transferId === pendingTransfer.transferId) {
+                  const content = decryptXfer(pendingTransfer.payload, parsed.ephemeralKey);
+                  await vault.store(pendingTransfer.name, content, {
+                    version: pendingTransfer.version,
+                    description: pendingTransfer.description,
+                    tags: pendingTransfer.tags
+                  });
+                  console.log(`received and stored: ${pendingTransfer.name}`);
+                  received = true;
+                  break;
+                }
+
+                if (parsed.type === TYPES.ACK && !parsed.success) {
+                  console.error('provider does not have this skill');
+                  received = true;
+                  break;
+                }
+              }
+              if (received) break;
+            }
+          }
+
+          if (!received) {
+            console.error('timed out waiting for skill transfer. is the provider listening?');
+          }
         }
       } else if (sub === 'listen') {
         console.log('listening for incoming skill requests...');

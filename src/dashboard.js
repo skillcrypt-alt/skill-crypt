@@ -181,6 +181,87 @@ export class Dashboard {
         return;
       }
 
+      // Transfer request through the listener's live XMTP client
+      if (url.pathname === '/api/transfer' && req.method === 'POST') {
+        let body = '';
+        for await (const chunk of req) body += chunk;
+        try {
+          const { address, skillId } = JSON.parse(body);
+          if (!address || !skillId) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'address and skillId required' }));
+            return;
+          }
+
+          // Use the listener's existing XMTP client — no new connection
+          const client = this.share.client;
+          await client.requestSkill(address, skillId);
+
+          // Poll for two-part transfer response (up to 60s)
+          const { parseMessage: parseMsg, MSG_TYPES: TYPES } = await import('./transfer.js');
+          const { decryptTransfer: decryptXfer } = await import('./crypto.js');
+          const deadline = Date.now() + 60000;
+          let received = false;
+          let pendingTransfer = null;
+          let result = null;
+
+          while (Date.now() < deadline && !received) {
+            await new Promise(r => setTimeout(r, 3000));
+            await client.client.conversations.sync();
+            const dms = await client.client.conversations.listDms();
+            for (const dm of dms) {
+              await dm.sync();
+              const msgs = await dm.messages({ limit: 20 });
+              for (const m of msgs) {
+                if (m.senderInboxId === client.client.inboxId) continue;
+                const text = typeof m.content === 'string' ? m.content : m.content?.text;
+                if (!text) continue;
+                const parsed = parseMsg(text);
+                if (!parsed) continue;
+
+                if (parsed.type === TYPES.SKILL_TRANSFER &&
+                    (parsed.skillId === skillId || parsed.name === skillId)) {
+                  pendingTransfer = parsed;
+                }
+
+                if (parsed.type === TYPES.TRANSFER_KEY && pendingTransfer &&
+                    parsed.transferId === pendingTransfer.transferId) {
+                  const content = decryptXfer(pendingTransfer.payload, parsed.ephemeralKey);
+                  await this.vault.store(pendingTransfer.name, content, {
+                    version: pendingTransfer.version,
+                    description: pendingTransfer.description,
+                    tags: pendingTransfer.tags
+                  });
+                  result = { name: pendingTransfer.name, skillId: pendingTransfer.skillId };
+                  received = true;
+                  break;
+                }
+
+                if (parsed.type === TYPES.ACK && !parsed.success) {
+                  res.writeHead(404, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ error: 'provider does not have this skill' }));
+                  return;
+                }
+              }
+              if (received) break;
+            }
+          }
+
+          if (received) {
+            this.log(this.agentName, `received: ${result.name}`, 'transfer');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, ...result }));
+          } else {
+            res.writeHead(504, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'transfer timed out' }));
+          }
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+      }
+
       if (url.pathname === '/' || url.pathname === '/index.html') {
         // HTML ships alongside this file in src/dashboard.html
         const html = await readFile(join(__dirname, 'dashboard.html'), 'utf8');
