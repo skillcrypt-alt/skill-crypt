@@ -142,6 +142,16 @@ export class SkillCryptClient {
    *
    * @param {function} [onEvent] - Optional callback for events: onEvent(type, data)
    */
+  /**
+   * Set context for the message handler (used for payments).
+   * Call before listen() to enable paid skill support.
+   *
+   * @param {object} ctx - { payTo: 'wallet address for receiving USDC' }
+   */
+  setListenContext(ctx) {
+    this._listenContext = { ...(this._listenContext || {}), ...ctx };
+  }
+
   async listen(onEvent) {
     console.log('[skillcrypt] listening for messages...');
 
@@ -175,7 +185,7 @@ export class SkillCryptClient {
             const resp = JSON.parse(response);
             onEvent('message:out', { type: resp.type });
           }
-        });
+        }, this._listenContext || {});
       }
     };
 

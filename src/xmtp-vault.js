@@ -84,6 +84,8 @@ export class XMTPVault {
       payload: encrypted.toString('base64'),
       storedAt: new Date().toISOString()
     };
+    // paid skill: price in USD (e.g. '0.05'), omitted = free
+    if (meta.price) envelope.price = String(meta.price).replace(/^\$/, '');
 
     await this.group.sync();
     await this.group.sendText(JSON.stringify(envelope));
@@ -97,7 +99,8 @@ export class XMTPVault {
       tags: envelope.tags,
       contentHash,
       size: content.length,
-      storedAt: envelope.storedAt
+      storedAt: envelope.storedAt,
+      ...(envelope.price ? { price: envelope.price } : {}),
     };
 
     emit('vault:stored', { name, skillId, size: content.length });
@@ -286,7 +289,8 @@ export class XMTPVault {
           tags: envelope.tags,
           contentHash: envelope.contentHash,
           size: envelope.size,
-          storedAt: envelope.storedAt
+          storedAt: envelope.storedAt,
+          ...(envelope.price ? { price: envelope.price } : {}),
         };
       } catch {
         // Not a vault message, skip

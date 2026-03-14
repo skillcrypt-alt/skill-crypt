@@ -130,7 +130,8 @@ export class SkillShare {
       version: entry.version,
       size: entry.size,
       address: this.client.getAddress(),
-      skillId
+      skillId,
+      price: entry.price || null,
     });
 
     await this.group.sync();

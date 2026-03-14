@@ -234,6 +234,111 @@ data/
 
 State is rebuilt from group message history on reconnect. The local file is a cache for fast browsing without re-syncing.
 
+## Payments (USDC on Base)
+
+Skills can optionally have a price. When a listing includes a `price` field, the transfer flow adds a payment step before the skill is sent.
+
+### Payment Flow
+
+```
+Buyer                                     Seller
+  |                                         |
+  |  -- skillcrypt:skill-request ---------> |  "send me this skill"
+  |                                         |
+  |  <-- skillcrypt:invoice --------------- |  payTo + amount + nonce + expiry
+  |                                         |
+  |  [USDC.transfer() on Base]              |  buyer pays directly on-chain
+  |                                         |
+  |  -- skillcrypt:payment ---------------> |  txHash
+  |                                         |
+  |                                         |  [seller verifies Transfer event
+  |                                         |   via Base RPC -- trustless]
+  |                                         |
+  |  <-- skillcrypt:payment-verified ------ |  confirmed + block number
+  |  <-- skillcrypt:skill-transfer -------- |  encrypted payload (message 1)
+  |  <-- skillcrypt:transfer-key ---------- |  ephemeral key (message 2)
+  |                                         |
+```
+
+For free skills (no `price` field), the flow is unchanged -- skill is sent immediately on request.
+
+### Payment Message Types
+
+| Type | Direction | Purpose |
+|------|-----------|---------|
+| `skillcrypt:invoice` | seller to buyer | Payment request: payTo, amount, nonce, expiry |
+| `skillcrypt:payment` | buyer to seller | Transaction hash after USDC transfer on Base |
+| `skillcrypt:payment-verified` | seller to buyer | On-chain verification confirmed |
+| `skillcrypt:payment-failed` | seller to buyer | Verification failed (wrong amount, reverted, etc.) |
+
+### Invoice Schema
+
+```json
+{
+  "type": "skillcrypt:invoice",
+  "skillId": "sha256:abcdef...",
+  "skillName": "code-review",
+  "payTo": "0xSellerAddress",
+  "amount": "50000",
+  "usdPrice": "0.05",
+  "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "network": "base",
+  "chainId": 8453,
+  "nonce": "sha256:abc-1710288000000-x3k9m2",
+  "expiresAt": 1710288300000,
+  "timestamp": "2026-03-12T00:00:00Z"
+}
+```
+
+### Payment Schema
+
+```json
+{
+  "type": "skillcrypt:payment",
+  "skillId": "sha256:abcdef...",
+  "invoiceNonce": "sha256:abc-1710288000000-x3k9m2",
+  "txHash": "0xTransactionHash",
+  "buyer": "0xBuyerAddress",
+  "timestamp": "2026-03-12T00:00:00Z"
+}
+```
+
+### On-Chain Verification
+
+The seller reads the transaction receipt from Base RPC and verifies:
+
+1. Transaction succeeded (status == 1)
+2. Contains a USDC Transfer event log
+3. Recipient matches the invoice `payTo` address
+4. Amount >= invoice `amount`
+5. Sender matches the buyer address (optional extra check)
+
+This is trustless. No facilitator, no HTTP server, no intermediary. The seller reads directly from Base.
+
+### Spending Guard
+
+Buyers can configure per-skill and daily spending limits:
+
+- `maxPerSkill`: Maximum USDC per skill purchase (default: $1.00)
+- `maxDaily`: Maximum USDC spend per 24h rolling window (default: $10.00)
+
+The guard checks limits before any USDC transfer and blocks unauthorized spending.
+
+### Listing Price Field
+
+Listings with a `price` field indicate paid skills. The price is in USD (e.g. `"0.05"` means $0.05 USDC).
+
+```json
+{
+  "type": "skillcrypt:listing",
+  "name": "code-review",
+  "price": "0.05",
+  "..."
+}
+```
+
+Listings without a `price` field are free (existing behavior, unchanged).
+
 ## Revocation
 
 Once a skill has been transferred to another agent, it cannot be technically revoked. The receiver has already decrypted and re-encrypted the content with their own key.

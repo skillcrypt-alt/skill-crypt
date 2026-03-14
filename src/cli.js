@@ -163,18 +163,21 @@ async function main() {
     case 'store': {
       const filePath = args[0];
       if (!filePath) {
-        console.error('usage: skill-crypt store <path>');
+        console.error('usage: skill-crypt store <path> [--price 0.05]');
         process.exit(1);
       }
+      const priceIdx = args.indexOf('--price');
+      const price = priceIdx >= 0 ? args[priceIdx + 1] : null;
       const { vault } = await connect();
       const content = await readFile(filePath, 'utf8');
       const name = basename(filePath, '.md').replace(/^SKILL$/, basename(filePath, '.md')).toLowerCase();
-      const skillId = await vault.store(name, content, {
-        description: `stored from ${basename(filePath)}`
-      });
+      const storeOpts = { description: `stored from ${basename(filePath)}` };
+      if (price) storeOpts.price = price;
+      const skillId = await vault.store(name, content, storeOpts);
       console.log(`stored in XMTP vault: ${skillId}`);
       console.log(`  name: ${name}`);
       console.log(`  size: ${content.length} bytes`);
+      if (price) console.log(`  price: $${price} USDC`);
       console.log(`  location: XMTP inbox (no files on disk)`);
 
       // first skill hint
@@ -639,6 +642,9 @@ async function main() {
 
         // sync existing messages before streaming new ones
         await share.syncHistory();
+
+        // enable paid skill support: set wallet address for receiving USDC
+        client.setListenContext({ payTo: client.getAddress() });
 
         // also listen for DM transfer requests in the background
         client.listen().catch(() => {});

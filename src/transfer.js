@@ -22,7 +22,13 @@ export const MSG_TYPES = {
   LISTING: 'skillcrypt:listing',
   LISTING_REQUEST: 'skillcrypt:listing-request',
   PROFILE: 'skillcrypt:profile',
-  REVIEW: 'skillcrypt:review'
+  REVIEW: 'skillcrypt:review',
+
+  // Payments (USDC on Base)
+  INVOICE: 'skillcrypt:invoice',
+  PAYMENT: 'skillcrypt:payment',
+  PAYMENT_VERIFIED: 'skillcrypt:payment-verified',
+  PAYMENT_FAILED: 'skillcrypt:payment-failed',
 };
 
 // --- Direct transfer builders ---
@@ -132,7 +138,7 @@ export function buildAck(skillId, success = true) {
  * @param {string} [opts.skillId] - Vault skill ID
  */
 export function buildListing(opts) {
-  return {
+  const listing = {
     type: MSG_TYPES.LISTING,
     name: opts.name,
     description: opts.description || '',
@@ -143,6 +149,9 @@ export function buildListing(opts) {
     skillId: opts.skillId || null,
     timestamp: new Date().toISOString()
   };
+  // paid skills: price in USD (e.g. '0.05'), omitted = free
+  if (opts.price) listing.price = String(opts.price).replace(/^\$/, '');
+  return listing;
 }
 
 /**
@@ -269,6 +278,24 @@ export async function handleMessage(msg, vault, sendFn, context = {}) {
         await sendFn(JSON.stringify(buildAck(msg.skillId, false)));
         return;
       }
+
+      // Paid skill? Send invoice instead of skill
+      if (entry.price && context.payTo) {
+        const { buildInvoice } = await import('./payment.js');
+        const invoice = buildInvoice({
+          skillId,
+          skillName: entry.name,
+          price: entry.price,
+          payTo: context.payTo,
+        });
+        // stash pending invoice for verification later
+        if (!context._pendingInvoices) context._pendingInvoices = new Map();
+        context._pendingInvoices.set(invoice.nonce, { invoice, skillId, entry });
+        await sendFn(JSON.stringify(invoice));
+        break;
+      }
+
+      // Free skill — send immediately
       const content = await vault.load(skillId);
       const { transfer, keyMsg } = buildTransfer({
         skillId,
@@ -283,6 +310,72 @@ export async function handleMessage(msg, vault, sendFn, context = {}) {
       // DB never has plaintext -- only ciphertext in one row, key in another
       await sendFn(JSON.stringify(transfer));
       await sendFn(JSON.stringify(keyMsg));
+      break;
+    }
+
+    case MSG_TYPES.INVOICE: {
+      // Buyer receives invoice — hand off to payment handler
+      if (context.onInvoice) context.onInvoice(msg);
+      break;
+    }
+
+    case MSG_TYPES.PAYMENT: {
+      // Seller receives txHash — verify on-chain, then send skill
+      if (!context._pendingInvoices) break;
+      const pending = context._pendingInvoices.get(msg.invoiceNonce);
+      if (!pending) break;
+
+      const { verifyPayment, buildPaymentVerified, buildPaymentFailed } = await import('./payment.js');
+
+      const result = await verifyPayment(msg.txHash, {
+        payTo: pending.invoice.payTo,
+        amount: pending.invoice.amount,
+        buyer: msg.buyer,
+      });
+
+      if (!result.verified) {
+        await sendFn(JSON.stringify(buildPaymentFailed({
+          skillId: pending.skillId,
+          invoiceNonce: msg.invoiceNonce,
+          reason: result.error,
+        })));
+        break;
+      }
+
+      // Payment verified — send confirmation
+      await sendFn(JSON.stringify(buildPaymentVerified({
+        skillId: pending.skillId,
+        invoiceNonce: msg.invoiceNonce,
+        txHash: msg.txHash,
+        blockNumber: result.blockNumber,
+      })));
+
+      // Now send the skill (same as free transfer)
+      const content = await vault.load(pending.skillId);
+      const { transfer, keyMsg } = buildTransfer({
+        skillId: pending.skillId,
+        name: pending.entry.name,
+        content,
+        contentHash: pending.entry.contentHash,
+        version: pending.entry.version,
+        description: pending.entry.description,
+        tags: pending.entry.tags,
+      });
+      await sendFn(JSON.stringify(transfer));
+      await sendFn(JSON.stringify(keyMsg));
+
+      context._pendingInvoices.delete(msg.invoiceNonce);
+      if (context.onPaymentVerified) context.onPaymentVerified(result, pending);
+      break;
+    }
+
+    case MSG_TYPES.PAYMENT_VERIFIED: {
+      if (context.onPaymentVerified) context.onPaymentVerified(msg);
+      break;
+    }
+
+    case MSG_TYPES.PAYMENT_FAILED: {
+      if (context.onPaymentFailed) context.onPaymentFailed(msg);
       break;
     }
 
