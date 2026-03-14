@@ -332,9 +332,10 @@ async function main() {
 
           const { parseMessage: parseMsg, MSG_TYPES: TYPES } = await import('./transfer.js');
           const { decryptTransfer: decryptXfer } = await import('./crypto.js');
-          const deadline = Date.now() + 60000;
+          const deadline = Date.now() + 90000;
           let received = false;
           let pendingTransfer = null;
+          let invoicePaid = false;
 
           while (Date.now() < deadline && !received) {
             await new Promise(r => setTimeout(r, 3000));
@@ -350,6 +351,52 @@ async function main() {
                 if (!text) continue;
                 const parsed = parseMsg(text);
                 if (!parsed) continue;
+
+                // Handle invoice: auto-pay if we have USDC
+                if (parsed.type === TYPES.INVOICE && !invoicePaid) {
+                  console.log(`invoice received: $${parsed.price} USDC to ${parsed.payTo}`);
+                  try {
+                    const { paySkillInvoice, isInvoiceValid } = await import('./payment.js');
+                    if (!isInvoiceValid(parsed)) {
+                      console.error('invoice expired');
+                      received = true;
+                      break;
+                    }
+                    const { ethers } = await import('ethers');
+                    const provider = new ethers.JsonRpcProvider(process.env.PAYWALL_RPC_URL || 'https://mainnet.base.org');
+                    const { key } = loadKeyGuarded(DATA_DIR);
+                    const wallet = new ethers.Wallet(key, provider);
+                    console.log(`paying $${parsed.price} USDC...`);
+                    const txHash = await paySkillInvoice(wallet, parsed);
+                    console.log(`paid! tx: ${txHash}`);
+                    // Send payment message back over XMTP
+                    await dm.sendText(JSON.stringify({
+                      type: TYPES.PAYMENT,
+                      invoiceNonce: parsed.nonce,
+                      txHash,
+                      buyer: wallet.address,
+                      timestamp: new Date().toISOString(),
+                    }));
+                    console.log('payment sent, waiting for skill delivery...');
+                    invoicePaid = true;
+                  } catch (err) {
+                    console.error(`payment failed: ${err.message}`);
+                    received = true;
+                    break;
+                  }
+                }
+
+                // Handle payment verification confirmation
+                if (parsed.type === TYPES.PAYMENT_VERIFIED) {
+                  console.log(`payment verified at block ${parsed.blockNumber}`);
+                }
+
+                // Handle payment failure
+                if (parsed.type === TYPES.PAYMENT_FAILED) {
+                  console.error(`payment rejected: ${parsed.reason}`);
+                  received = true;
+                  break;
+                }
 
                 if (parsed.type === TYPES.SKILL_TRANSFER &&
                     (parsed.skillId === skillId || parsed.name === skillId)) {

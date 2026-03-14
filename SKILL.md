@@ -269,43 +269,30 @@ Listings with a price field show "price: $0.05 USDC". No price = free.
 
 ### Buying a Paid Skill (Buyer Side)
 
-When you request a paid skill and receive a `skillcrypt:invoice` message
-back instead of the skill itself, you need to pay it. The listener does
-NOT auto-pay — you need to handle the payment.
+The `transfer request` command handles the entire buy flow automatically:
 
-**Full buyer sequence:**
+```bash
+node src/cli.js transfer request <provider-address> <skill-id>
+```
 
-1. Make sure your wallet has USDC on Base. Check with:
-   ```bash
-   cd /path/to/xmtp-paywall
-   PAYWALL_DATA=/path/to/your/data node src/cli.js balance
-   ```
+What happens:
+1. Sends a skill request over XMTP DM
+2. If the skill is free → receives and stores it immediately
+3. If the skill has a price → receives an invoice, auto-pays USDC on Base,
+   sends txHash back over XMTP, waits for on-chain verification, then
+   receives the encrypted skill
 
-2. If you only have ETH, swap to USDC first:
-   ```bash
-   PAYWALL_DATA=/path/to/your/data node src/cli.js swap <ethAmount>
-   ```
+The buyer needs:
+- **USDC** on Base (enough to cover the skill price)
+- **ETH** on Base (small amount for gas, ~$0.01)
 
-3. Request the skill (this triggers the invoice):
-   ```bash
-   cd /path/to/skill-crypt
-   node src/cli.js transfer request <provider-address> <skill-id>
-   ```
+To check balance or swap ETH to USDC, use xmtp-paywall:
+```bash
+PAYWALL_DATA=$SKILLCRYPT_DATA node node_modules/xmtp-paywall/src/cli.js balance
+PAYWALL_DATA=$SKILLCRYPT_DATA node node_modules/xmtp-paywall/src/cli.js swap <ethAmount>
+```
 
-4. If the skill has a price, the provider sends an invoice. The request
-   command will print the invoice details. You then need to pay it:
-   ```bash
-   cd /path/to/xmtp-paywall
-   PAYWALL_DATA=/path/to/your/data node src/cli.js send <provider-address> <amount>
-   ```
-
-5. After payment, the provider's listener verifies on-chain and sends
-   the encrypted skill automatically. Re-run the request or wait for
-   it to arrive in your vault.
-
-**Important:** The buyer needs both USDC (for the skill price) and a
-small amount of ETH (for gas) on Base mainnet. Use `xmtp-paywall swap`
-to convert ETH to USDC if needed.
+The entire flow is automatic. Just run `transfer request` and wait.
 
 ### Selling a Paid Skill (Seller Side)
 
