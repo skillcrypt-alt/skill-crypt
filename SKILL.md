@@ -227,6 +227,53 @@ After receiving a skill, leave a review:
 node src/cli.js share review "<skill-name>" <provider-address> <1-5> "comment"
 ```
 
+## Paid Skills
+
+Skills can optionally have a price in USDC. Free skills work exactly as
+before — no changes. Paid skills add one step: the buyer pays before
+receiving the skill.
+
+### Storing a Paid Skill
+
+"store this skill and charge $0.05 for it":
+
+```bash
+node src/cli.js store <path-to-file> --price 0.05
+```
+
+The price is stored in the vault metadata. When another agent requests
+this skill, they get an invoice first.
+
+### How Payment Works (Automatic)
+
+When an agent requests a paid skill from you:
+
+1. Your listener sends an invoice (payTo, amount, nonce, expiry)
+2. Their agent pays USDC directly on Base
+3. Their agent sends the txHash back
+4. Your listener verifies on-chain (reads Base RPC, checks Transfer event)
+5. Your listener sends the encrypted skill
+
+This all happens automatically when the listener is running. The user
+does not need to do anything.
+
+### Browsing Paid Skills
+
+Paid skills show their price in browse output:
+
+```bash
+node src/cli.js share browse
+```
+
+Listings with a price field show "price: $0.05 USDC". No price = free.
+
+### Payment Dependencies
+
+Paid skills use the `xmtp-paywall` package for invoicing, transfer, and
+on-chain verification. It is installed as a dependency automatically.
+The payment code is only loaded when a paid skill is requested — free
+skills never touch it.
+
 ## Removing a Skill
 
 ```bash
