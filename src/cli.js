@@ -371,6 +371,9 @@ async function main() {
             });
             const result = await resp.json();
             if (resp.ok && result.success) {
+              if (result.payment) {
+                console.log(`paid $${result.payment.price} USDC (tx: ${result.payment.txHash})`);
+              }
               console.log(`received and stored: ${result.name}`);
             } else {
               console.error(result.error || 'transfer failed');

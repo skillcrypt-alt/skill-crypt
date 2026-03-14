@@ -285,6 +285,7 @@ export class Dashboard {
             }));
           }
           buy.invoicePaid = true;
+          buy._payment = { txHash, price: msg.price };
           this.log(this.agentName, `paid $${msg.price} USDC → ${msg.payTo.slice(0,10)}...`, 'transfer');
         } catch (err) {
           console.error(`[buy] payment failed: ${err.message}`);
@@ -320,7 +321,11 @@ export class Dashboard {
         clearTimeout(buy.timer);
         this.pendingBuys.delete(buyKey);
         this.log(this.agentName, `received skill: ${buy._pendingTransfer.name}`, 'transfer');
-        buy.resolve({ name: buy._pendingTransfer.name, skillId: buy._pendingTransfer.skillId });
+        buy.resolve({
+          name: buy._pendingTransfer.name,
+          skillId: buy._pendingTransfer.skillId,
+          payment: buy._payment || null,
+        });
         return;
       }
     }
