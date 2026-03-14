@@ -344,13 +344,23 @@ async function main() {
         const portArg = args[args.indexOf('--port') + 1];
         if (portArg) dashPorts.unshift(parseInt(portArg));
 
-        // We don't have the client address yet (haven't connected), so just
-        // probe for any listener that responds and matches our data dir wallet.
+        // Derive our wallet address from KeyGuard without connecting to XMTP.
+        // This lets us verify we're routing through OUR listener, not another agent's.
+        let myAddress;
+        try {
+          const { key } = loadKeyGuarded(DATA_DIR);
+          const { ethers } = await import('ethers');
+          myAddress = new ethers.Wallet(key).address.toLowerCase();
+        } catch { /* if KeyGuard fails, skip address check */ }
+
         let routed = false;
         for (const port of dashPorts) {
           try {
             const probe = await fetch(`http://127.0.0.1:${port}/api/state`, { signal: AbortSignal.timeout(1000) });
             if (!probe.ok) continue;
+            const state = await probe.json();
+            // Verify this listener belongs to us, not another agent
+            if (myAddress && state.agent?.address?.toLowerCase() !== myAddress) continue;
 
             console.log(`[routing transfer through listener on :${port}]`);
             const resp = await fetch(`http://127.0.0.1:${port}/api/transfer`, {
