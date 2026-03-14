@@ -214,6 +214,14 @@
     background: #f0f7ff; border: 1px solid #d0e4f7; color: #2563eb;
     font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 500;
   }
+  .price-tag {
+    font-size: 10px; font-weight: 600; color: #fff; background: #389e0d;
+    padding: 2px 8px; border-radius: 4px;
+  }
+  .free-tag {
+    font-size: 10px; font-weight: 500; color: #999; background: #f4f3f0;
+    padding: 2px 8px; border-radius: 4px;
+  }
 </style>
 </head>
 <body>
@@ -330,6 +338,7 @@ function renderListings() {
       <div class="card-desc">${esc(l.description)}</div>
       <div class="card-bottom">
         ${(l.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}
+        ${l.price?`<span class="price-tag">$${esc(l.price)} USDC</span>`:'<span class="free-tag">free</span>'}
         <span class="provider">${esc(nameOf(l.address))}</span>
         ${r?`${renderStars(r.avg)}<span class="rating-ct">(${r.count})</span>`:''}
       </div>
@@ -503,7 +512,7 @@ async function loadVault() {
             <span class="vault-badge encrypted">AES-256-GCM</span>
             <span class="vault-badge locked">encrypted</span>
           </div>
-          <span style="font-size:11px;color:#999">v${esc(s.version||'1.0')} | ${(s.encryptedBytes||0).toLocaleString()} bytes ciphertext</span>
+          <span style="font-size:11px;color:#999">v${esc(s.version||'1.0')} | ${(s.encryptedBytes||0).toLocaleString()} bytes${s.price?` | <span class="price-tag">$${esc(s.price)} USDC</span>`:''}</span>
         </div>
         <div class="vault-card-hash">${esc(s.skillId)}</div>
         <div class="vault-card-meta">${esc(s.description||'')}</div>
