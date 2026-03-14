@@ -384,6 +384,8 @@ async function main() {
           }
         }
       } else if (sub === 'listen') {
+        // enable paid skill support: set wallet address so invoices work
+        client.setListenContext({ payTo: client.getAddress() });
         console.log('listening for incoming skill requests...');
         await client.listen();
       } else {
