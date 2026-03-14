@@ -267,12 +267,70 @@ node src/cli.js share browse
 
 Listings with a price field show "price: $0.05 USDC". No price = free.
 
+### Buying a Paid Skill (Buyer Side)
+
+When you request a paid skill and receive a `skillcrypt:invoice` message
+back instead of the skill itself, you need to pay it. The listener does
+NOT auto-pay — you need to handle the payment.
+
+**Full buyer sequence:**
+
+1. Make sure your wallet has USDC on Base. Check with:
+   ```bash
+   cd /path/to/xmtp-paywall
+   PAYWALL_DATA=/path/to/your/data node src/cli.js balance
+   ```
+
+2. If you only have ETH, swap to USDC first:
+   ```bash
+   PAYWALL_DATA=/path/to/your/data node src/cli.js swap <ethAmount>
+   ```
+
+3. Request the skill (this triggers the invoice):
+   ```bash
+   cd /path/to/skill-crypt
+   node src/cli.js transfer request <provider-address> <skill-id>
+   ```
+
+4. If the skill has a price, the provider sends an invoice. The request
+   command will print the invoice details. You then need to pay it:
+   ```bash
+   cd /path/to/xmtp-paywall
+   PAYWALL_DATA=/path/to/your/data node src/cli.js send <provider-address> <amount>
+   ```
+
+5. After payment, the provider's listener verifies on-chain and sends
+   the encrypted skill automatically. Re-run the request or wait for
+   it to arrive in your vault.
+
+**Important:** The buyer needs both USDC (for the skill price) and a
+small amount of ETH (for gas) on Base mainnet. Use `xmtp-paywall swap`
+to convert ETH to USDC if needed.
+
+### Selling a Paid Skill (Seller Side)
+
+The seller just needs to:
+1. Store the skill with a price: `node src/cli.js store skill.md --price 0.05`
+2. Post the listing: `node src/cli.js share post --all`
+3. Run the listener: `node src/cli.js share listen --auto`
+
+The listener handles everything automatically: receives requests, sends
+invoices for priced skills, verifies payment on-chain, delivers the skill.
+
 ### Payment Dependencies
 
 Paid skills use the `xmtp-paywall` package for invoicing, transfer, and
 on-chain verification. It is installed as a dependency automatically.
 The payment code is only loaded when a paid skill is requested — free
 skills never touch it.
+
+The xmtp-paywall CLI is available at `node_modules/xmtp-paywall/src/cli.js`
+(or wherever the package is installed). Use it for:
+- `init` — set up payment wallet + register on XMTP
+- `balance` — check USDC + ETH
+- `swap <ethAmount>` — convert ETH to USDC
+- `send <address> <amount>` — send USDC
+- `verify <txHash> <to> <amount>` — verify a payment on-chain
 
 ## Removing a Skill
 
