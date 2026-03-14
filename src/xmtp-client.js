@@ -191,23 +191,46 @@ export class SkillCryptClient {
 
     // streamAllMessages misses DMs from new conversations (XMTP SDK bug).
     // Fix: use streamAllGroupMessages for groups + streamAllDmMessages for DMs.
-    const groupStream = await this.client.conversations.streamAllGroupMessages();
-    (async () => {
-      for await (const message of groupStream) {
-        try { await processMessage(message); } catch (e) {
-          console.error('[skillcrypt] group message error:', e.message);
-        }
-      }
-    })();
+    // Both streams auto-restart on close/error (XMTP streams die silently).
 
-    const dmStream = await this.client.conversations.streamAllDmMessages();
-    (async () => {
-      for await (const message of dmStream) {
-        try { await processMessage(message); } catch (e) {
-          console.error('[skillcrypt] DM message error:', e.message);
+    const startGroupStream = async () => {
+      while (true) {
+        try {
+          const stream = await this.client.conversations.streamAllGroupMessages();
+          for await (const message of stream) {
+            try { await processMessage(message); } catch (e) {
+              console.error('[skillcrypt] group message error:', e.message);
+            }
+          }
+          console.log('[skillcrypt] group stream ended, restarting...');
+        } catch (e) {
+          console.error('[skillcrypt] group stream error, restarting:', e.message);
         }
+        await new Promise(r => setTimeout(r, 2000));
+        try { await this.client.conversations.sync(); } catch {}
       }
-    })();
+    };
+
+    const startDmStream = async () => {
+      while (true) {
+        try {
+          const stream = await this.client.conversations.streamAllDmMessages();
+          for await (const message of stream) {
+            try { await processMessage(message); } catch (e) {
+              console.error('[skillcrypt] DM message error:', e.message);
+            }
+          }
+          console.log('[skillcrypt] DM stream ended, restarting...');
+        } catch (e) {
+          console.error('[skillcrypt] DM stream error, restarting:', e.message);
+        }
+        await new Promise(r => setTimeout(r, 2000));
+        try { await this.client.conversations.sync(); } catch {}
+      }
+    };
+
+    startGroupStream();
+    startDmStream();
 
     // Periodic sync to pick up new DM conversations (XMTP SDK bug workaround).
     // Without this, DMs from agents we've never talked to get dropped.
