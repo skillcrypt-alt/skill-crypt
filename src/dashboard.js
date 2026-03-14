@@ -117,9 +117,14 @@ export class Dashboard {
       } else if (t.includes('transfer') || t.includes('vault')) {
         const skillName = d.name || d.skillName || '';
         if (t.includes('skill-transfer')) logAction = `sent skill${skillName ? ': ' + skillName : ''}`;
-        else if (t.includes('transfer-key')) logAction = `sent transfer key${skillName ? ' for ' + skillName : ''}`;
-        else if (t.includes('vault:stored')) logAction = `stored: ${skillName}`;
-        else if (t.includes('vault:loaded')) logAction = `loaded: ${skillName}`;
+        else if (t.includes('transfer-key')) logAction = `sent key${skillName ? ' for ' + skillName : ''}`;
+        else if (t.includes('vault:stored')) {
+          // Resolve pending buy if one is waiting for this skill
+          this.resolveBuyOnStore(d.skillId || d.contentHash, skillName);
+          logAction = `received: ${skillName}`;
+        }
+        // vault:loaded is too noisy — skip
+        else if (t.includes('vault:loaded')) { /* skip */ }
         else logAction = t.replace('skillcrypt:', '').replace('vault:', '');
         logType = 'transfer';
       } else if (t.includes('oracle')) {
@@ -226,7 +231,6 @@ export class Dashboard {
           await client.requestSkill(address, skillId);
 
           const result = await buyPromise;
-          this.log(this.agentName, `received: ${result.name}`, 'transfer');
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true, ...result }));
         } catch (e) {
@@ -302,30 +306,21 @@ export class Dashboard {
         buy.reject(new Error(`payment rejected: ${msg.reason}`));
         return;
       }
+      // Skill delivery is handled by handleMessage in xmtp-client.js.
+      // Resolution happens via the vault:stored bus event in start().
+    }
+  }
 
-      // Skill transfer (two-part: payload then key)
-      const { MSG_TYPES: TYPES } = await import('./transfer.js');
-      if (msg.type === TYPES.SKILL_TRANSFER) {
-        buy._pendingTransfer = msg;
-        return;
-      }
-      if (msg.type === TYPES.TRANSFER_KEY && buy._pendingTransfer &&
-          msg.transferId === buy._pendingTransfer.transferId) {
-        const { decryptTransfer } = await import('./crypto.js');
-        const content = decryptTransfer(buy._pendingTransfer.payload, msg.ephemeralKey);
-        await this.vault.store(buy._pendingTransfer.name, content, {
-          version: buy._pendingTransfer.version,
-          description: buy._pendingTransfer.description,
-          tags: buy._pendingTransfer.tags
-        });
+  /**
+   * Resolve a pending buy when the vault emits vault:stored.
+   * Called from the bus.on('event') handler in start().
+   */
+  resolveBuyOnStore(skillId, skillName) {
+    for (const [buyKey, buy] of this.pendingBuys.entries()) {
+      if (buy.skillId === skillId || buyKey.endsWith(`:${skillId}`)) {
         clearTimeout(buy.timer);
         this.pendingBuys.delete(buyKey);
-        this.log(this.agentName, `received skill: ${buy._pendingTransfer.name}`, 'transfer');
-        buy.resolve({
-          name: buy._pendingTransfer.name,
-          skillId: buy._pendingTransfer.skillId,
-          payment: buy._payment || null,
-        });
+        buy.resolve({ name: skillName, skillId, payment: buy._payment || null });
         return;
       }
     }
