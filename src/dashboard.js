@@ -114,18 +114,23 @@ export class Dashboard {
         logType = 'request';
         this.broadcast({ type: 'request', data: d });
         this.broadcast({ type: 'state-patch', patch: { requests: this.share.requests.slice(-20) } });
-      } else if (t.includes('transfer') || t.includes('vault')) {
+      } else if (t.startsWith('transfer:') || t.includes('vault')) {
         const skillName = d.name || d.skillName || '';
-        if (t.includes('skill-transfer')) logAction = `sent skill${skillName ? ': ' + skillName : ''}`;
-        else if (t.includes('transfer-key')) logAction = `sent key${skillName ? ' for ' + skillName : ''}`;
+        if (t === 'transfer:skill-requested')   logAction = `skill requested: ${skillName}`;
+        else if (t === 'transfer:invoice-sent')      logAction = `invoice sent: $${d.price} for ${skillName}`;
+        else if (t === 'transfer:invoice-received')  logAction = `invoice received: $${d.price}`;
+        else if (t === 'transfer:invoice-paid')       logAction = `paid $${d.price} USDC → ${(d.payTo||'').slice(0,10)}...`;
+        else if (t === 'transfer:payment-received')  logAction = `payment received: ${skillName}`;
+        else if (t === 'transfer:payment-verified')  logAction = `payment verified (block ${d.blockNumber})`;
+        else if (t === 'transfer:payment-failed')    logAction = `payment failed: ${d.reason}`;
+        else if (t === 'transfer:skill-sent')        logAction = `skill sent: ${skillName}`;
         else if (t.includes('vault:stored')) {
-          // Resolve pending buy if one is waiting for this skill
           this.resolveBuyOnStore(d.skillId || d.contentHash, skillName);
           logAction = `received: ${skillName}`;
         }
-        // vault:loaded is too noisy — skip
-        else if (t.includes('vault:loaded')) { /* skip */ }
-        else logAction = t.replace('skillcrypt:', '').replace('vault:', '');
+        else if (t.includes('vault:loaded')) { /* skip — too noisy */ }
+        else if (t.includes('skill-transfer')) logAction = `sent skill: ${skillName}`;
+        else if (t.includes('transfer-key'))   logAction = `sent key for ${skillName}`;
         logType = 'transfer';
       } else if (t.includes('oracle')) {
         logAction = t.replace('oracle:', '') + (d.name ? ` (${d.name})` : '');
@@ -290,7 +295,9 @@ export class Dashboard {
           }
           buy.invoicePaid = true;
           buy._payment = { txHash, price: msg.price };
-          this.log(this.agentName, `paid $${msg.price} USDC → ${msg.payTo.slice(0,10)}...`, 'transfer');
+          // emit so dashboard logs it via the bus handler
+          const { emit: emitEv } = await import('./events.js');
+          emitEv('transfer:invoice-paid', { price: msg.price, txHash, payTo: msg.payTo });
         } catch (err) {
           console.error(`[buy] payment failed: ${err.message}`);
           clearTimeout(buy.timer);

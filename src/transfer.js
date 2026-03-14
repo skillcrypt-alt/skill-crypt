@@ -12,6 +12,7 @@
 
 
 import { encryptForTransfer, decryptTransfer } from './crypto.js';
+import { emit } from './events.js';
 
 export const MSG_TYPES = {
   // Direct transfer protocol
@@ -191,6 +192,8 @@ export async function handleMessage(msg, vault, sendFn, context = {}) {
         return;
       }
 
+      emit('transfer:skill-requested', { skillId, name: entry.name, price: entry.price || null });
+
       // Has a price AND seller set payTo? Send invoice.
       // No price or no payTo? Free — send skill immediately.
       if (entry.price && context.payTo) {
@@ -198,6 +201,7 @@ export async function handleMessage(msg, vault, sendFn, context = {}) {
         const invoice = buildSkillInvoice(context.payTo, entry.price, skillId, entry.name);
         if (!context._pendingInvoices) context._pendingInvoices = new Map();
         context._pendingInvoices.set(invoice.nonce, { invoice, skillId, entry });
+        emit('transfer:invoice-sent', { skillId, name: entry.name, price: entry.price, payTo: context.payTo });
         await sendFn(JSON.stringify(invoice));
       } else {
         await sendSkill(vault, skillId, entry, sendFn);
@@ -206,6 +210,7 @@ export async function handleMessage(msg, vault, sendFn, context = {}) {
     }
 
     case MSG_TYPES.INVOICE: {
+      emit('transfer:invoice-received', { skillId: msg.resource, price: msg.price, payTo: msg.payTo });
       if (context.onInvoice) context.onInvoice(msg);
       break;
     }
@@ -215,10 +220,13 @@ export async function handleMessage(msg, vault, sendFn, context = {}) {
       const pending = context._pendingInvoices.get(msg.invoiceNonce);
       if (!pending) break;
 
+      emit('transfer:payment-received', { skillId: pending.skillId, name: pending.entry.name, txHash: msg.txHash });
+
       const { verifySkillPayment } = await import('./payment.js');
       const result = await verifySkillPayment(msg.txHash, pending.invoice.payTo, pending.invoice.amount);
 
       if (!result.verified) {
+        emit('transfer:payment-failed', { skillId: pending.skillId, name: pending.entry.name, reason: result.error });
         await sendFn(JSON.stringify({
           type: MSG_TYPES.PAYMENT_FAILED, nonce: msg.invoiceNonce,
           reason: result.error, timestamp: new Date().toISOString(),
@@ -226,12 +234,14 @@ export async function handleMessage(msg, vault, sendFn, context = {}) {
         break;
       }
 
+      emit('transfer:payment-verified', { skillId: pending.skillId, name: pending.entry.name, txHash: msg.txHash, blockNumber: result.blockNumber });
       await sendFn(JSON.stringify({
         type: MSG_TYPES.PAYMENT_VERIFIED, nonce: msg.invoiceNonce,
         txHash: msg.txHash, blockNumber: result.blockNumber,
         timestamp: new Date().toISOString(),
       }));
       await sendSkill(vault, pending.skillId, pending.entry, sendFn);
+      emit('transfer:skill-sent', { skillId: pending.skillId, name: pending.entry.name });
       context._pendingInvoices.delete(msg.invoiceNonce);
       break;
     }
