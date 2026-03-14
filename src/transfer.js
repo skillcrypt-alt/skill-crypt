@@ -215,11 +215,8 @@ export async function handleMessage(msg, vault, sendFn, context = {}) {
       const pending = context._pendingInvoices.get(msg.invoiceNonce);
       if (!pending) break;
 
-      const { verifyPayment } = await import('./payment.js');
-      const result = await verifyPayment(msg.txHash, {
-        payTo: pending.invoice.payTo,
-        amount: pending.invoice.amount,
-      });
+      const { verifySkillPayment } = await import('./payment.js');
+      const result = await verifySkillPayment(msg.txHash, pending.invoice.payTo, pending.invoice.amount);
 
       if (!result.verified) {
         await sendFn(JSON.stringify({
