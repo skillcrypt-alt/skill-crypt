@@ -173,11 +173,11 @@ export class SkillCryptClient {
 
       const parsed = parseMessage(text);
       if (parsed && this.vault) {
-        if (onEvent) onEvent('message:in', { type: parsed.type, from: message.senderInboxId });
-
         const conversation = await this.client.conversations.getConversationById(
           message.conversationId
         );
+
+        if (onEvent) onEvent('message:in', { type: parsed.type, from: message.senderInboxId, _raw: parsed, _conversation: conversation });
 
         await handleMessage(parsed, this.vault, async (response) => {
           await conversation.sendText(response);
