@@ -899,13 +899,15 @@ async function main() {
         const dashboardEnabled = args.includes('--dashboard');
         const dashPort = parseInt(args[args.indexOf('--port') + 1]) || 8099;
 
+        let dash = null;
         if (dashboardEnabled) {
           const { Dashboard } = await import('./dashboard.js');
-          const dash = new Dashboard({
+          dash = new Dashboard({
             vault,
             share,
             agentName: AGENT_NAME,
             address: client.getAddress(),
+            dataDir: DATA_DIR,
             port: dashPort
           });
           dash.start();
@@ -919,8 +921,13 @@ async function main() {
         // enable paid skill support: set wallet address so invoices work
         client.setListenContext({ payTo: client.getAddress() });
 
-        // also listen for DM transfer requests in the background
-        client.listen().catch(() => {});
+        // also listen for DM transfer requests in the background —
+        // routes buy-side messages (invoices, skill delivery) to dashboard's pendingBuys
+        client.listen(async (eventType, eventData) => {
+          if (eventType === 'message:in' && dash) {
+            await dash.handleBuyEvent(eventData);
+          }
+        }).catch(() => {});
 
         await share.listen({
           autoRespond,

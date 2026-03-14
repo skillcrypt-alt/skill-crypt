@@ -34,10 +34,13 @@ export class Dashboard {
     this.share = opts.share;
     this.agentName = opts.agentName;
     this.address = opts.address;
+    this.dataDir = opts.dataDir;
     this.port = opts.port || 8099;
     this.sseClients = new Set();
     this.activity = [];
     this.server = null;
+    // pendingBuys: keyed `${address.toLowerCase()}:${skillId}` — resolved by onEvent
+    this.pendingBuys = new Map();
   }
 
   log(agent, action, type = 'info') {
@@ -181,7 +184,9 @@ export class Dashboard {
         return;
       }
 
-      // Transfer request through the listener's live XMTP client
+      // Transfer request through the listener's live XMTP client.
+      // Uses pendingBuys + onEvent (same pattern as transfer listen) so the
+      // existing XMTP stream handles invoice auto-pay and skill delivery.
       if (url.pathname === '/api/transfer' && req.method === 'POST') {
         let body = '';
         for await (const chunk of req) body += chunk;
@@ -193,70 +198,24 @@ export class Dashboard {
             return;
           }
 
-          // Use the listener's existing XMTP client — no new connection
+          const buyKey = `${address.toLowerCase()}:${skillId}`;
+          const buyPromise = new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+              this.pendingBuys.delete(buyKey);
+              reject(new Error('timed out waiting for skill transfer'));
+            }, 120000);
+            this.pendingBuys.set(buyKey, { resolve, reject, timer, skillId, invoicePaid: false });
+          });
+
           const client = this.share.client;
           await client.requestSkill(address, skillId);
 
-          // Poll for two-part transfer response (up to 60s)
-          const { parseMessage: parseMsg, MSG_TYPES: TYPES } = await import('./transfer.js');
-          const { decryptTransfer: decryptXfer } = await import('./crypto.js');
-          const deadline = Date.now() + 60000;
-          let received = false;
-          let pendingTransfer = null;
-          let result = null;
-
-          while (Date.now() < deadline && !received) {
-            await new Promise(r => setTimeout(r, 3000));
-            await client.client.conversations.sync();
-            const dms = await client.client.conversations.listDms();
-            for (const dm of dms) {
-              await dm.sync();
-              const msgs = await dm.messages({ limit: 20 });
-              for (const m of msgs) {
-                if (m.senderInboxId === client.client.inboxId) continue;
-                const text = typeof m.content === 'string' ? m.content : m.content?.text;
-                if (!text) continue;
-                const parsed = parseMsg(text);
-                if (!parsed) continue;
-
-                if (parsed.type === TYPES.SKILL_TRANSFER &&
-                    (parsed.skillId === skillId || parsed.name === skillId)) {
-                  pendingTransfer = parsed;
-                }
-
-                if (parsed.type === TYPES.TRANSFER_KEY && pendingTransfer &&
-                    parsed.transferId === pendingTransfer.transferId) {
-                  const content = decryptXfer(pendingTransfer.payload, parsed.ephemeralKey);
-                  await this.vault.store(pendingTransfer.name, content, {
-                    version: pendingTransfer.version,
-                    description: pendingTransfer.description,
-                    tags: pendingTransfer.tags
-                  });
-                  result = { name: pendingTransfer.name, skillId: pendingTransfer.skillId };
-                  received = true;
-                  break;
-                }
-
-                if (parsed.type === TYPES.ACK && !parsed.success) {
-                  res.writeHead(404, { 'Content-Type': 'application/json' });
-                  res.end(JSON.stringify({ error: 'provider does not have this skill' }));
-                  return;
-                }
-              }
-              if (received) break;
-            }
-          }
-
-          if (received) {
-            this.log(this.agentName, `received: ${result.name}`, 'transfer');
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true, ...result }));
-          } else {
-            res.writeHead(504, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'transfer timed out' }));
-          }
+          const result = await buyPromise;
+          this.log(this.agentName, `received: ${result.name}`, 'transfer');
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, ...result }));
         } catch (e) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.writeHead(e.message?.includes('timed out') ? 504 : 500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: e.message }));
         }
         return;
@@ -277,6 +236,78 @@ export class Dashboard {
     this.server.listen(this.port, '0.0.0.0', () => {
       console.log(`[dashboard] http://localhost:${this.port}`);
     });
+  }
+
+  /**
+   * Handle an incoming XMTP message for pending buys (invoice auto-pay + skill delivery).
+   * Called by share listen's onEvent when a DM arrives.
+   */
+  async handleBuyEvent(eventData) {
+    if (!this.pendingBuys.size) return;
+    const msg = eventData?._raw;
+    if (!msg) return;
+
+    for (const [buyKey, buy] of this.pendingBuys.entries()) {
+      // Invoice: auto-pay USDC
+      if (msg.type === 'skillcrypt:invoice' && !buy.invoicePaid) {
+        console.log(`[buy] invoice: $${msg.price} USDC to ${msg.payTo}`);
+        try {
+          const { loadKeyGuarded } = await import('./key-guard.js');
+          const { payInvoice } = await import('xmtp-paywall');
+          const { ethers } = await import('ethers');
+          const { key } = loadKeyGuarded(this.dataDir);
+          const rpc = process.env.PAYWALL_RPC_URL || 'https://mainnet.base.org';
+          const wallet = new ethers.Wallet(key, new ethers.JsonRpcProvider(rpc));
+          const txHash = await payInvoice(wallet, msg);
+          console.log(`[buy] paid: ${txHash}`);
+          const conv = eventData._conversation;
+          if (conv) {
+            await conv.sendText(JSON.stringify({
+              type: 'skillcrypt:payment',
+              txHash,
+              invoiceNonce: msg.nonce,
+              timestamp: new Date().toISOString()
+            }));
+          }
+          buy.invoicePaid = true;
+          this.log(this.agentName, `paid $${msg.price} USDC for skill`, 'payment');
+        } catch (err) {
+          console.error(`[buy] payment failed: ${err.message}`);
+          clearTimeout(buy.timer);
+          this.pendingBuys.delete(buyKey);
+          buy.reject(new Error(`payment failed: ${err.message}`));
+        }
+        return;
+      }
+
+      if (msg.type === 'skillcrypt:payment-failed') {
+        clearTimeout(buy.timer);
+        this.pendingBuys.delete(buyKey);
+        buy.reject(new Error(`payment rejected: ${msg.reason}`));
+        return;
+      }
+
+      // Skill transfer (two-part: payload then key)
+      const { MSG_TYPES: TYPES } = await import('./transfer.js');
+      if (msg.type === TYPES.SKILL_TRANSFER) {
+        buy._pendingTransfer = msg;
+        return;
+      }
+      if (msg.type === TYPES.TRANSFER_KEY && buy._pendingTransfer &&
+          msg.transferId === buy._pendingTransfer.transferId) {
+        const { decryptTransfer } = await import('./crypto.js');
+        const content = decryptTransfer(buy._pendingTransfer.payload, msg.ephemeralKey);
+        await this.vault.store(buy._pendingTransfer.name, content, {
+          version: buy._pendingTransfer.version,
+          description: buy._pendingTransfer.description,
+          tags: buy._pendingTransfer.tags
+        });
+        clearTimeout(buy.timer);
+        this.pendingBuys.delete(buyKey);
+        buy.resolve({ name: buy._pendingTransfer.name, skillId: buy._pendingTransfer.skillId });
+        return;
+      }
+    }
   }
 
   stop() {
