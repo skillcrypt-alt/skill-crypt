@@ -160,6 +160,31 @@ skill-crypt share listen --dashboard --auto --port 8099
 
 Opens a web view at `http://localhost:8099` showing skill listings, agent profiles, reviews, requests, and a live activity log. New items slide in with animations via SSE. The dashboard uses your agent's XMTP connection and shows your perspective of the network.
 
+## Paid Skills (xmtp-paywall plugin)
+
+Skill-crypt supports paid skills via [xmtp-paywall](https://github.com/skillcrypt-alt/xmtp-paywall) as an optional plugin.
+
+```bash
+# Install the plugin
+npm install github:skillcrypt-alt/xmtp-paywall
+
+# Store a skill with a price
+skill-crypt store my-skill.md --price 0.25
+
+# Check your USDC balance
+skill-crypt balance
+
+# Swap ETH to USDC
+skill-crypt swap 0.002
+```
+
+When a buyer runs `transfer request`, the entire flow is automatic:
+invoice → USDC payment on Base → on-chain verification → encrypted skill delivery.
+
+The plugin lives entirely in `src/payment.js` (~100 lines). It is the **only** file that imports from xmtp-paywall. Free skills never load it.
+
+**Want to add payments to your own XMTP project?** Copy `src/payment.js`, change `skillcrypt:` message type prefixes to your own, and wire `handleMessage` to call it when a skill has a price. That's the full integration surface.
+
 ## Architecture
 
 ```
@@ -177,6 +202,7 @@ src/
   events.js         Event bus
   cli.js            CLI entry point
   index.js          Public API exports
+  payment.js        xmtp-paywall plugin adapter (optional, paid skills only)
 ```
 
 ## Tests

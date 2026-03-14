@@ -1,24 +1,40 @@
 /**
- * Skill-Crypt Payment Plugin
+ * skill-crypt payment plugin
  *
- * Wraps xmtp-paywall around skill-crypt's existing message flow.
- * If a skill has a price, the paywall handles invoicing + verification.
- * If no price, the skill is free and this file is never loaded.
+ * This file is the ONLY place skill-crypt imports from xmtp-paywall.
+ * It adapts xmtp-paywall's generic payment primitives to skill-crypt's
+ * protocol message types and data shapes.
  *
- * This is the ONLY file that imports from xmtp-paywall.
- * transfer.js dynamic-imports this when it sees a priced skill.
+ * To adapt xmtp-paywall for your own project:
+ *   1. Copy this file
+ *   2. Change the message type prefix ('skillcrypt:' → 'yourapp:')
+ *   3. Wire it into your message handler the same way transfer.js does
+ *   4. That's it — xmtp-paywall handles all the chain/XMTP plumbing
+ *
+ * If xmtp-paywall is not installed, all exports throw ERR_MODULE_NOT_FOUND
+ * and skill-crypt degrades gracefully (free skills still work).
  */
 
-import { createInvoice, isInvoiceValid, payInvoice, verifyPayment, SpendingGuard } from 'xmtp-paywall';
+import {
+  createInvoice,
+  isInvoiceValid,
+  payInvoice,
+  verifyPayment,
+  SpendingGuard,
+} from 'xmtp-paywall';
+
+// --- Invoice ---
 
 /**
- * Build an invoice for a paid skill.
+ * Build a skill-crypt invoice for a paid skill.
+ * Wraps xmtp-paywall's createInvoice and re-types it as skillcrypt:invoice
+ * so it flows through the existing transfer protocol unchanged.
  *
- * @param {string} payTo - seller wallet address
- * @param {string} price - USD amount ('0.05')
+ * @param {string} payTo - seller wallet address (receives USDC)
+ * @param {string} price - price in USD (e.g. '0.25')
  * @param {string} skillId - vault skill ID
  * @param {string} skillName - human-readable name
- * @returns {object} invoice with type 'skillcrypt:invoice'
+ * @returns {object} invoice message ready to JSON.stringify and send
  */
 export function buildSkillInvoice(payTo, price, skillId, skillName) {
   const invoice = createInvoice({
@@ -27,41 +43,46 @@ export function buildSkillInvoice(payTo, price, skillId, skillName) {
     resource: skillId,
     meta: { skillId, skillName },
   });
-  // Re-type as skillcrypt message so it flows through the existing protocol
+  // Re-type as skillcrypt message so transfer.js treats it as protocol traffic
   invoice.type = 'skillcrypt:invoice';
   return invoice;
 }
 
+// --- Payment ---
+
 /**
- * Pay a skill invoice. Calls xmtp-paywall's payInvoice under the hood.
+ * Pay a skill invoice. Transfers USDC directly on Base — no facilitator.
  *
- * @param {ethers.Wallet} wallet - funded wallet
- * @param {object} invoice - from buildSkillInvoice
- * @returns {Promise<string>} tx hash
+ * @param {ethers.Wallet} wallet - buyer's funded wallet
+ * @param {object} invoice - from buildSkillInvoice (or received over XMTP)
+ * @returns {Promise<string>} on-chain transaction hash
  */
 export async function paySkillInvoice(wallet, invoice) {
   return payInvoice(wallet, invoice);
 }
 
+// --- Verification ---
+
 /**
  * Verify a skill payment on-chain.
+ * Reads Transfer events directly from Base RPC — trustless, no intermediary.
  *
- * @param {string} txHash
- * @param {string} payTo - expected recipient
- * @param {string} amount - raw USDC amount
- * @returns {Promise<{ verified: boolean, error?: string, blockNumber?: number }>}
+ * @param {string} txHash - transaction hash from buyer
+ * @param {string} payTo - expected recipient (seller address)
+ * @param {string} amount - expected raw USDC amount (6 decimals)
+ * @returns {Promise<{ verified: boolean, blockNumber?: number, error?: string }>}
  */
 export async function verifySkillPayment(txHash, payTo, amount) {
   return verifyPayment(txHash, { payTo, amount });
 }
 
-export { isInvoiceValid, SpendingGuard };
+// --- Balance & Swap ---
 
 /**
- * Get wallet balance (USDC + ETH on Base).
+ * Get wallet USDC + ETH balance on Base.
  *
- * @param {string} privateKey - wallet private key
- * @param {string} [rpcUrl] - Base RPC URL
+ * @param {string} privateKey - wallet private key (hex)
+ * @param {string} [rpcUrl] - Base RPC (defaults to mainnet.base.org)
  * @returns {Promise<{ address: string, usdc: string, eth: string }>}
  */
 export async function getBalance(privateKey, rpcUrl) {
@@ -70,8 +91,10 @@ export async function getBalance(privateKey, rpcUrl) {
   const wallet = new ethers.Wallet(privateKey, provider);
   const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
   const usdc = new ethers.Contract(USDC, ['function balanceOf(address) view returns (uint256)'], provider);
-  const usdcBal = await usdc.balanceOf(wallet.address);
-  const ethBal = await provider.getBalance(wallet.address);
+  const [usdcBal, ethBal] = await Promise.all([
+    usdc.balanceOf(wallet.address),
+    provider.getBalance(wallet.address),
+  ]);
   return {
     address: wallet.address,
     usdc: ethers.formatUnits(usdcBal, 6),
@@ -82,9 +105,9 @@ export async function getBalance(privateKey, rpcUrl) {
 /**
  * Swap ETH → USDC via Uniswap V3 on Base.
  *
- * @param {string} privateKey - wallet private key
- * @param {string} ethAmount - amount of ETH to swap (e.g. '0.003')
- * @param {string} [rpcUrl] - Base RPC URL
+ * @param {string} privateKey - wallet private key (hex)
+ * @param {string} ethAmount - ETH to swap (e.g. '0.002')
+ * @param {string} [rpcUrl] - Base RPC (defaults to mainnet.base.org)
  * @returns {Promise<{ hash?: string, usdcBalance: string }>}
  */
 export async function swapToUsdc(privateKey, ethAmount, rpcUrl) {
@@ -101,3 +124,5 @@ export async function swapToUsdc(privateKey, ethAmount, rpcUrl) {
     usdcBalance: ethers.formatUnits(bal, 6),
   };
 }
+
+export { isInvoiceValid, SpendingGuard };
