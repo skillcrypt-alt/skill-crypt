@@ -538,9 +538,6 @@ async function main() {
                 res.writeHead(err.message.includes('timed out') ? 504 : 500);
                 res.end(JSON.stringify({ error: err.message }));
               }
-            } catch (err) {
-              res.writeHead(500);
-              res.end(JSON.stringify({ error: err.message }));
             }
             return;
           }
