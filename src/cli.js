@@ -546,7 +546,10 @@ async function main() {
                       try {
                         const { payInvoice } = await import('xmtp-paywall');
                         const { key } = loadKeyGuarded(DATA_DIR);
-                        const txHash = await payInvoice({ payTo: parsed.payTo, amount: parsed.amount }, key);
+                        const { ethers: eth } = await import('ethers');
+                        const rpc = process.env.PAYWALL_RPC_URL || 'https://mainnet.base.org';
+                        const buyerWallet = new eth.Wallet(key, new eth.JsonRpcProvider(rpc));
+                        const txHash = await payInvoice(buyerWallet, parsed);
                         await dm.sendText(JSON.stringify({ type: 'skillcrypt:payment', txHash, invoiceNonce: parsed.nonce, timestamp: new Date().toISOString() }));
                         invoicePaid = true;
                       } catch (err) {
