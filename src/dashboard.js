@@ -52,7 +52,9 @@ export class Dashboard {
 
   broadcast(event) {
     const data = `data: ${JSON.stringify(event)}\n\n`;
-    for (const res of this.sseClients) res.write(data);
+    for (const res of this.sseClients) {
+      if (!res.writableEnded) res.write(data);
+    }
   }
 
   getState() {
@@ -139,10 +141,23 @@ export class Dashboard {
       res.setHeader('Access-Control-Allow-Origin', '*');
 
       if (url.pathname === '/events') {
-        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no',  // disable nginx buffering if behind proxy
+        });
+        res.flushHeaders();  // flush headers immediately so browser opens the stream
         res.write(`data: ${JSON.stringify({ type: 'state', ...this.getState() })}\n\n`);
         this.sseClients.add(res);
-        req.on('close', () => this.sseClients.delete(res));
+        // Keepalive: send a comment every 15s to prevent connection timeout
+        const keepalive = setInterval(() => {
+          if (!res.writableEnded) res.write(': keepalive\n\n');
+        }, 15000);
+        req.on('close', () => {
+          clearInterval(keepalive);
+          this.sseClients.delete(res);
+        });
         return;
       }
 
@@ -270,7 +285,7 @@ export class Dashboard {
             }));
           }
           buy.invoicePaid = true;
-          this.log(this.agentName, `paid $${msg.price} USDC for skill`, 'payment');
+          this.log(this.agentName, `paid $${msg.price} USDC → ${msg.payTo.slice(0,10)}...`, 'transfer');
         } catch (err) {
           console.error(`[buy] payment failed: ${err.message}`);
           clearTimeout(buy.timer);
@@ -304,6 +319,7 @@ export class Dashboard {
         });
         clearTimeout(buy.timer);
         this.pendingBuys.delete(buyKey);
+        this.log(this.agentName, `received skill: ${buy._pendingTransfer.name}`, 'transfer');
         buy.resolve({ name: buy._pendingTransfer.name, skillId: buy._pendingTransfer.skillId });
         return;
       }
