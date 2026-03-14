@@ -209,6 +209,12 @@ export class SkillCryptClient {
       }
     })();
 
+    // Periodic sync to pick up new DM conversations (XMTP SDK bug workaround).
+    // Without this, DMs from agents we've never talked to get dropped.
+    setInterval(async () => {
+      try { await this.client.conversations.sync(); } catch {}
+    }, 5000);
+
     // Keep alive
     await new Promise(() => {});
   }
