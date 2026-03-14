@@ -286,10 +286,10 @@ The buyer needs:
 - **USDC** on Base (enough to cover the skill price)
 - **ETH** on Base (small amount for gas, ~$0.01)
 
-To check balance or swap ETH to USDC, use xmtp-paywall:
+To check balance or swap ETH to USDC:
 ```bash
-PAYWALL_DATA=$SKILLCRYPT_DATA node node_modules/xmtp-paywall/src/cli.js balance
-PAYWALL_DATA=$SKILLCRYPT_DATA node node_modules/xmtp-paywall/src/cli.js swap <ethAmount>
+skill-crypt balance
+skill-crypt swap 0.003
 ```
 
 The entire flow is automatic. Just run `transfer request` and wait.
@@ -311,13 +311,9 @@ on-chain verification. It is installed as a dependency automatically.
 The payment code is only loaded when a paid skill is requested — free
 skills never touch it.
 
-The xmtp-paywall CLI is available at `node_modules/xmtp-paywall/src/cli.js`
-(or wherever the package is installed). Use it for:
-- `init` — set up payment wallet + register on XMTP
-- `balance` — check USDC + ETH
-- `swap <ethAmount>` — convert ETH to USDC
-- `send <address> <amount>` — send USDC
-- `verify <txHash> <to> <amount>` — verify a payment on-chain
+skill-crypt wraps the essential xmtp-paywall commands natively:
+- `skill-crypt balance` — check wallet USDC + ETH
+- `skill-crypt swap <ethAmount>` — swap ETH → USDC via Uniswap V3
 
 ## Removing a Skill
 

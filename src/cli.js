@@ -13,6 +13,8 @@
  *   find <query>               Search skills by name, tag, or description
  *   remove <skill-id>          Tombstone a skill in the vault
  *   rotate <new-wallet-key>    Re-encrypt vault with a new wallet key
+ *   balance                    Show wallet USDC + ETH balance
+ *   swap <eth-amount>          Swap ETH → USDC via Uniswap V3
  *   transfer catalog <address> Request catalog from another agent
  *   transfer request <addr> <id>  Request a skill from another agent
  *   transfer listen            Listen for incoming requests
@@ -52,6 +54,9 @@ Usage:
   skill-crypt find <query>                     Search skills
   skill-crypt remove <skill-id>                Remove a skill
   skill-crypt rotate <new-wallet-key>          Re-encrypt with new key
+
+  skill-crypt balance                           Show wallet USDC + ETH balance
+  skill-crypt swap <eth-amount>                Swap ETH → USDC via Uniswap V3
 
   skill-crypt transfer catalog <address>       Request catalog from agent
   skill-crypt transfer request <address> <id>  Request a skill
@@ -268,6 +273,48 @@ async function main() {
         process.exit(1);
       }
       console.log('done. update SKILLCRYPT_WALLET_KEY to the new key.');
+      break;
+    }
+
+    case 'balance': {
+      const { key } = loadKeyGuarded(DATA_DIR);
+      const { ethers } = await import('ethers');
+      const rpc = process.env.PAYWALL_RPC_URL || 'https://mainnet.base.org';
+      const provider = new ethers.JsonRpcProvider(rpc);
+      const wallet = new ethers.Wallet(key, provider);
+      const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+      const abi = ['function balanceOf(address) view returns (uint256)'];
+      const usdc = new ethers.Contract(USDC, abi, provider);
+      const usdcBal = await usdc.balanceOf(wallet.address);
+      const ethBal = await provider.getBalance(wallet.address);
+      console.log(`wallet: ${wallet.address}`);
+      console.log(`  USDC: ${ethers.formatUnits(usdcBal, 6)}`);
+      console.log(`  ETH:  ${ethers.formatEther(ethBal)}`);
+      break;
+    }
+
+    case 'swap': {
+      const amount = args[0];
+      if (!amount) {
+        console.error('usage: skill-crypt swap <eth-amount>');
+        console.error('  swaps ETH for USDC via Uniswap V3 on Base');
+        process.exit(1);
+      }
+      const { key } = loadKeyGuarded(DATA_DIR);
+      const { ethers } = await import('ethers');
+      const rpc = process.env.PAYWALL_RPC_URL || 'https://mainnet.base.org';
+      const provider = new ethers.JsonRpcProvider(rpc);
+      const wallet = new ethers.Wallet(key, provider);
+      console.log(`swapping ${amount} ETH for USDC...`);
+      const { swapEthToUsdc } = await import('xmtp-paywall/swap');
+      const result = await swapEthToUsdc(wallet, amount);
+      console.log(`swap complete: tx ${result?.hash || 'confirmed'}`);
+      // Show new balance
+      const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+      const abi = ['function balanceOf(address) view returns (uint256)'];
+      const usdc = new ethers.Contract(USDC, abi, provider);
+      const bal = await usdc.balanceOf(wallet.address);
+      console.log(`new USDC balance: ${ethers.formatUnits(bal, 6)}`);
       break;
     }
 
