@@ -643,13 +643,8 @@ async function main() {
         // sync existing messages before streaming new ones
         await share.syncHistory();
 
-        // enable paid skill support via xmtp-paywall
-        const { createSkillPaywall } = await import('./payment.js');
-        const paywall = createSkillPaywall({
-          payTo: client.getAddress(),
-          vault: client.vault,
-        });
-        client.setListenContext({ paywall, payTo: client.getAddress() });
+        // enable paid skill support: set wallet address so invoices work
+        client.setListenContext({ payTo: client.getAddress() });
 
         // also listen for DM transfer requests in the background
         client.listen().catch(() => {});
