@@ -83,8 +83,8 @@ export class Dashboard {
       const t = ev.type || '';
       const d = ev.data || ev;
 
-      // Determine a human-readable label for the log
-      let logAgent = d.address || d.provider || d.name || '';
+      // Agent column always shows this agent's name — never skill names or addresses
+      let logAgent = this.agentName;
       let logAction = '';
       let logType = 'info';
 
@@ -112,27 +112,27 @@ export class Dashboard {
         logAction = `join request: ${d.name || short(d.address)}`;
         logType = 'oracle';
       } else if (t.includes('request')) {
-        logAction = `looking for: "${d.query || d.skillId || 'skill'}"`;
+        logAction = `skill request (${d.query || d.skillId || 'skill'})`;
         logType = 'request';
         this.broadcast({ type: 'request', data: d });
         this.broadcast({ type: 'state-patch', patch: { requests: this.share.requests.slice(-20) } });
       } else if (t.startsWith('transfer:') || t.includes('vault')) {
-        const skillName = d.name || d.skillName || '';
-        if (t === 'transfer:skill-requested')   logAction = `skill requested: ${skillName}`;
-        else if (t === 'transfer:invoice-sent')      logAction = `invoice sent: $${d.price} for ${skillName}`;
+        const sk = d.name || d.skillName || '';
+        if (t === 'transfer:skill-requested')        logAction = `skill requested (${sk})`;
+        else if (t === 'transfer:invoice-sent')      logAction = `invoice sent: $${d.price} (${sk})`;
         else if (t === 'transfer:invoice-received')  logAction = `invoice received: $${d.price}`;
-        else if (t === 'transfer:invoice-paid')       logAction = `paid $${d.price} USDC (tx: ${(d.txHash||'').slice(0,14)}...)`;
-        else if (t === 'transfer:payment-received')  logAction = `payment received: ${skillName} (tx: ${(d.txHash||'').slice(0,14)}...)`;
-        else if (t === 'transfer:payment-verified')  logAction = `payment verified block ${d.blockNumber} (tx: ${(d.txHash||'').slice(0,14)}...)`;
+        else if (t === 'transfer:invoice-paid')      logAction = `paid $${d.price} USDC (tx: ${(d.txHash||'').slice(0,14)}...)`;
+        else if (t === 'transfer:payment-received')  logAction = `payment received (${sk}) tx: ${(d.txHash||'').slice(0,14)}...`;
+        else if (t === 'transfer:payment-verified')  logAction = `verified block ${d.blockNumber} (tx: ${(d.txHash||'').slice(0,14)}...)`;
         else if (t === 'transfer:payment-failed')    logAction = `payment failed: ${d.reason}`;
-        else if (t === 'transfer:skill-sent')        logAction = `skill sent: ${skillName}`;
+        else if (t === 'transfer:skill-sent')        logAction = `skill delivered (${sk})`;
         else if (t.includes('vault:stored')) {
-          this.resolveBuyOnStore(d.skillId || d.contentHash, skillName);
-          logAction = `received: ${skillName}`;
+          this.resolveBuyOnStore(d.skillId || d.contentHash, sk);
+          logAction = `received and stored (${sk})`;
         }
-        else if (t.includes('vault:loaded')) { /* skip — too noisy */ }
-        else if (t.includes('skill-transfer')) logAction = `sent skill: ${skillName}`;
-        else if (t.includes('transfer-key'))   logAction = `sent key for ${skillName}`;
+        else if (t.includes('vault:loaded')) { /* skip */ }
+        else if (t.includes('skill-transfer')) logAction = `sent encrypted skill (${sk})`;
+        else if (t.includes('transfer-key'))   logAction = `sent transfer key (${sk})`;
         logType = 'transfer';
       } else if (t.includes('oracle')) {
         logAction = t.replace('oracle:', '') + (d.name ? ` (${d.name})` : '');
