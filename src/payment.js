@@ -56,3 +56,48 @@ export async function verifySkillPayment(txHash, payTo, amount) {
 }
 
 export { isInvoiceValid, SpendingGuard };
+
+/**
+ * Get wallet balance (USDC + ETH on Base).
+ *
+ * @param {string} privateKey - wallet private key
+ * @param {string} [rpcUrl] - Base RPC URL
+ * @returns {Promise<{ address: string, usdc: string, eth: string }>}
+ */
+export async function getBalance(privateKey, rpcUrl) {
+  const { ethers } = await import('ethers');
+  const provider = new ethers.JsonRpcProvider(rpcUrl || 'https://mainnet.base.org');
+  const wallet = new ethers.Wallet(privateKey, provider);
+  const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+  const usdc = new ethers.Contract(USDC, ['function balanceOf(address) view returns (uint256)'], provider);
+  const usdcBal = await usdc.balanceOf(wallet.address);
+  const ethBal = await provider.getBalance(wallet.address);
+  return {
+    address: wallet.address,
+    usdc: ethers.formatUnits(usdcBal, 6),
+    eth: ethers.formatEther(ethBal),
+  };
+}
+
+/**
+ * Swap ETH → USDC via Uniswap V3 on Base.
+ *
+ * @param {string} privateKey - wallet private key
+ * @param {string} ethAmount - amount of ETH to swap (e.g. '0.003')
+ * @param {string} [rpcUrl] - Base RPC URL
+ * @returns {Promise<{ hash?: string, usdcBalance: string }>}
+ */
+export async function swapToUsdc(privateKey, ethAmount, rpcUrl) {
+  const { ethers } = await import('ethers');
+  const { swapEthToUsdc } = await import('xmtp-paywall/swap');
+  const provider = new ethers.JsonRpcProvider(rpcUrl || 'https://mainnet.base.org');
+  const wallet = new ethers.Wallet(privateKey, provider);
+  const result = await swapEthToUsdc(wallet, ethAmount);
+  const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+  const usdc = new ethers.Contract(USDC, ['function balanceOf(address) view returns (uint256)'], provider);
+  const bal = await usdc.balanceOf(wallet.address);
+  return {
+    hash: result?.hash,
+    usdcBalance: ethers.formatUnits(bal, 6),
+  };
+}

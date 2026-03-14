@@ -277,19 +277,20 @@ async function main() {
     }
 
     case 'balance': {
-      const { key } = loadKeyGuarded(DATA_DIR);
-      const { ethers } = await import('ethers');
-      const rpc = process.env.PAYWALL_RPC_URL || 'https://mainnet.base.org';
-      const provider = new ethers.JsonRpcProvider(rpc);
-      const wallet = new ethers.Wallet(key, provider);
-      const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
-      const abi = ['function balanceOf(address) view returns (uint256)'];
-      const usdc = new ethers.Contract(USDC, abi, provider);
-      const usdcBal = await usdc.balanceOf(wallet.address);
-      const ethBal = await provider.getBalance(wallet.address);
-      console.log(`wallet: ${wallet.address}`);
-      console.log(`  USDC: ${ethers.formatUnits(usdcBal, 6)}`);
-      console.log(`  ETH:  ${ethers.formatEther(ethBal)}`);
+      try {
+        const { getBalance } = await import('./payment.js');
+        const { key } = loadKeyGuarded(DATA_DIR);
+        const rpc = process.env.PAYWALL_RPC_URL || 'https://mainnet.base.org';
+        const result = await getBalance(key, rpc);
+        console.log(`wallet: ${result.address}`);
+        console.log(`  USDC: ${result.usdc}`);
+        console.log(`  ETH:  ${result.eth}`);
+      } catch (e) {
+        if (e.code === 'ERR_MODULE_NOT_FOUND') {
+          console.error('payment plugin not available. install xmtp-paywall:');
+          console.error('  npm install github:skillcrypt-alt/xmtp-paywall');
+        } else throw e;
+      }
       break;
     }
 
@@ -300,21 +301,20 @@ async function main() {
         console.error('  swaps ETH for USDC via Uniswap V3 on Base');
         process.exit(1);
       }
-      const { key } = loadKeyGuarded(DATA_DIR);
-      const { ethers } = await import('ethers');
-      const rpc = process.env.PAYWALL_RPC_URL || 'https://mainnet.base.org';
-      const provider = new ethers.JsonRpcProvider(rpc);
-      const wallet = new ethers.Wallet(key, provider);
-      console.log(`swapping ${amount} ETH for USDC...`);
-      const { swapEthToUsdc } = await import('xmtp-paywall/swap');
-      const result = await swapEthToUsdc(wallet, amount);
-      console.log(`swap complete: tx ${result?.hash || 'confirmed'}`);
-      // Show new balance
-      const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
-      const abi = ['function balanceOf(address) view returns (uint256)'];
-      const usdc = new ethers.Contract(USDC, abi, provider);
-      const bal = await usdc.balanceOf(wallet.address);
-      console.log(`new USDC balance: ${ethers.formatUnits(bal, 6)}`);
+      try {
+        const { swapToUsdc } = await import('./payment.js');
+        const { key } = loadKeyGuarded(DATA_DIR);
+        const rpc = process.env.PAYWALL_RPC_URL || 'https://mainnet.base.org';
+        console.log(`swapping ${amount} ETH for USDC...`);
+        const result = await swapToUsdc(key, amount, rpc);
+        console.log(`swap complete: tx ${result.hash || 'confirmed'}`);
+        console.log(`new USDC balance: ${result.usdcBalance}`);
+      } catch (e) {
+        if (e.code === 'ERR_MODULE_NOT_FOUND') {
+          console.error('payment plugin not available. install xmtp-paywall:');
+          console.error('  npm install github:skillcrypt-alt/xmtp-paywall');
+        } else throw e;
+      }
       break;
     }
 

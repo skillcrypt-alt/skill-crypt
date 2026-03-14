@@ -28,7 +28,9 @@
   "dependencies": {
     "@xmtp/node-sdk": "^5.5.0",
     "ethers": "^6.16.0",
-    "viem": "^2.47.2",
+    "viem": "^2.47.2"
+  },
+  "optionalDependencies": {
     "xmtp-paywall": "github:skillcrypt-alt/xmtp-paywall"
   },
   "engines": {
