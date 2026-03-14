@@ -273,9 +273,9 @@ async function main() {
 
     case 'transfer': {
       const sub = args[0];
-      const { client, vault } = await connect();
 
       if (sub === 'catalog') {
+        const { client } = await connect();
         const address = args[1];
         if (!address) {
           console.error('usage: skill-crypt transfer catalog <address>');
@@ -291,26 +291,26 @@ async function main() {
           process.exit(1);
         }
 
-        // Try routing through the local listener's dashboard API first.
-        // This avoids creating a second XMTP client (which steals the connection).
-        const dashPorts = [8200, 8201, 8202, 8203, 8099];
+        // Try routing through the local listener's API first.
+        // This avoids creating a second XMTP client (which kills the listener's stream).
+        const dashPorts = [8200, 8201, 8202, 8203, 8204, 8205, 8206, 8207, 8208, 8209, 8099];
         const portArg = args[args.indexOf('--port') + 1];
         if (portArg) dashPorts.unshift(parseInt(portArg));
 
+        // We don't have the client address yet (haven't connected), so just
+        // probe for any listener that responds and matches our data dir wallet.
         let routed = false;
         for (const port of dashPorts) {
           try {
-            // Probe the dashboard to check it's ours
-            const probe = await fetch(`http://127.0.0.1:${port}/api/state`);
+            const probe = await fetch(`http://127.0.0.1:${port}/api/state`, { signal: AbortSignal.timeout(1000) });
             if (!probe.ok) continue;
-            const state = await probe.json();
-            if (state.agent?.address?.toLowerCase() !== client.getAddress()?.toLowerCase()) continue;
 
             console.log(`[routing transfer through listener on :${port}]`);
             const resp = await fetch(`http://127.0.0.1:${port}/api/transfer`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ address, skillId })
+              body: JSON.stringify({ address, skillId }),
+              signal: AbortSignal.timeout(120000)
             });
             const result = await resp.json();
             if (resp.ok && result.success) {
@@ -321,11 +321,13 @@ async function main() {
             routed = true;
             break;
           } catch {
-            // dashboard not on this port, try next
+            // no listener on this port, try next
           }
         }
 
         if (!routed) {
+          // No listener running — create a fresh XMTP client (standalone mode)
+          const { client, vault } = await connect();
           // No listener running — fall back to direct XMTP (original behavior)
           await client.requestSkill(address, skillId);
           console.log('skill request sent, waiting for response...');
@@ -431,9 +433,127 @@ async function main() {
           }
         }
       } else if (sub === 'listen') {
+        const { client, vault } = await connect();
         // enable paid skill support: set wallet address so invoices work
         client.setListenContext({ payTo: client.getAddress() });
         console.log('listening for incoming skill requests...');
+
+        // Start a minimal internal API so `transfer request` routes through
+        // us instead of creating a second XMTP client (which kills our stream).
+        const { createServer } = await import('node:http');
+        const internalPort = parseInt(process.env.SKILLCRYPT_LISTEN_PORT || '0') || 8200;
+        let boundPort = internalPort;
+
+        const apiServer = createServer(async (req, res) => {
+          res.setHeader('Content-Type', 'application/json');
+
+          if (req.url === '/api/state' && req.method === 'GET') {
+            res.end(JSON.stringify({ agent: { address: client.getAddress(), name: process.env.SKILLCRYPT_AGENT_NAME || 'unknown' } }));
+            return;
+          }
+
+          if (req.url === '/api/transfer' && req.method === 'POST') {
+            let body = '';
+            for await (const chunk of req) body += chunk;
+            try {
+              const { address, skillId } = JSON.parse(body);
+              await client.requestSkill(address, skillId);
+
+              // Wait for the skill to arrive (handled by our listener)
+              const { parseMessage: parseMsg, MSG_TYPES: TYPES } = await import('./transfer.js');
+              const { decryptTransfer: decryptXfer } = await import('./crypto.js');
+              const deadline = Date.now() + 90000;
+              let received = false;
+              let pendingTransfer = null;
+              let invoicePaid = false;
+
+              while (Date.now() < deadline && !received) {
+                await new Promise(r => setTimeout(r, 3000));
+                await client.client.conversations.sync();
+                const dms = await client.client.conversations.listDms();
+                for (const dm of dms) {
+                  await dm.sync();
+                  const msgs = await dm.messages({ limit: 20 });
+                  for (const m of msgs) {
+                    if (m.senderInboxId === client.client.inboxId) continue;
+                    let text = null;
+                    if (typeof m.content === 'string') text = m.content;
+                    else if (m.content?.text) text = m.content.text;
+                    else if (typeof m.content === 'object') try { text = JSON.stringify(m.content); } catch {}
+                    if (!text) continue;
+                    const parsed = parseMsg(text);
+                    if (!parsed) continue;
+
+                    // Handle invoice: auto-pay
+                    if (parsed.type === 'skillcrypt:invoice' && !invoicePaid) {
+                      try {
+                        const { payInvoice } = await import('xmtp-paywall');
+                        const { key } = loadKeyGuarded(DATA_DIR);
+                        const txHash = await payInvoice({ payTo: parsed.payTo, amount: parsed.amount }, key);
+                        await dm.sendText(JSON.stringify({ type: 'skillcrypt:payment', txHash, invoiceNonce: parsed.nonce, timestamp: new Date().toISOString() }));
+                        invoicePaid = true;
+                      } catch (err) {
+                        res.writeHead(500);
+                        res.end(JSON.stringify({ error: `payment failed: ${err.message}` }));
+                        return;
+                      }
+                    }
+                    if (parsed.type === 'skillcrypt:payment-verified') { /* continue waiting for skill */ }
+                    if (parsed.type === 'skillcrypt:payment-failed') {
+                      res.writeHead(400);
+                      res.end(JSON.stringify({ error: `payment rejected: ${parsed.reason}` }));
+                      return;
+                    }
+                    if (parsed.type === TYPES.SKILL_TRANSFER && (parsed.skillId === skillId || parsed.name === skillId)) {
+                      pendingTransfer = parsed;
+                    }
+                    if (parsed.type === TYPES.TRANSFER_KEY && pendingTransfer && parsed.transferId === pendingTransfer.transferId) {
+                      const content = decryptXfer(pendingTransfer.payload, parsed.ephemeralKey);
+                      await vault.store(pendingTransfer.name, content, {
+                        version: pendingTransfer.version,
+                        description: pendingTransfer.description,
+                        tags: pendingTransfer.tags
+                      });
+                      res.end(JSON.stringify({ success: true, name: pendingTransfer.name }));
+                      received = true;
+                      return;
+                    }
+                    if (parsed.type === TYPES.ACK && !parsed.success) {
+                      res.writeHead(404);
+                      res.end(JSON.stringify({ error: 'provider does not have this skill' }));
+                      return;
+                    }
+                  }
+                  if (received) break;
+                }
+              }
+
+              if (!received) {
+                res.writeHead(504);
+                res.end(JSON.stringify({ error: 'timed out waiting for skill transfer' }));
+              }
+            } catch (err) {
+              res.writeHead(500);
+              res.end(JSON.stringify({ error: err.message }));
+            }
+            return;
+          }
+
+          res.writeHead(404);
+          res.end('{}');
+        });
+
+        // Try ports 8200-8210 to avoid conflicts
+        for (let p = internalPort; p < internalPort + 10; p++) {
+          try {
+            await new Promise((resolve, reject) => {
+              apiServer.once('error', reject);
+              apiServer.listen(p, '127.0.0.1', () => { boundPort = p; resolve(); });
+            });
+            break;
+          } catch { continue; }
+        }
+
         await client.listen();
       } else {
         console.error('usage: skill-crypt transfer [catalog|request|listen]');
