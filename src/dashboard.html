@@ -407,7 +407,7 @@ function renderReviews() {
 function addLog(entry) {
   const p = $('logPanel');
   const row = document.createElement('div');
-  row.className = `log-row ${entry.type||'info'} new`;
+  row.className = `log-row ${entry.logType||entry.type||'info'} new`;
   const t = new Date(entry.time).toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
   const agent = entry.agent && entry.agent.startsWith('0x') ? nameOf(entry.agent) : entry.agent;
   row.innerHTML = `<span class="log-t">${t}</span><span class="log-a">${esc(agent)}</span><span class="log-m">${esc(entry.action)}</span>`;

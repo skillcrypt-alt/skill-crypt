@@ -43,11 +43,13 @@ export class Dashboard {
     this.pendingBuys = new Map();
   }
 
-  log(agent, action, type = 'info') {
-    const entry = { time: Date.now(), agent, action, type };
+  log(agent, action, logType = 'info') {
+    const entry = { time: Date.now(), agent, action, type: logType };
     this.activity.unshift(entry);
     if (this.activity.length > 200) this.activity.length = 200;
-    this.broadcast({ type: 'activity', ...entry });
+    // Use a fixed SSE type 'activity' so the browser handler picks it up.
+    // Pass logType separately so the frontend can apply the right CSS class.
+    this.broadcast({ type: 'activity', time: entry.time, agent, action, logType });
   }
 
   broadcast(event) {
