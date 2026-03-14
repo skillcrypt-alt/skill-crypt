@@ -121,9 +121,9 @@ export class Dashboard {
         if (t === 'transfer:skill-requested')   logAction = `skill requested: ${skillName}`;
         else if (t === 'transfer:invoice-sent')      logAction = `invoice sent: $${d.price} for ${skillName}`;
         else if (t === 'transfer:invoice-received')  logAction = `invoice received: $${d.price}`;
-        else if (t === 'transfer:invoice-paid')       logAction = `paid $${d.price} USDC → ${(d.payTo||'').slice(0,10)}...`;
-        else if (t === 'transfer:payment-received')  logAction = `payment received: ${skillName}`;
-        else if (t === 'transfer:payment-verified')  logAction = `payment verified (block ${d.blockNumber})`;
+        else if (t === 'transfer:invoice-paid')       logAction = `paid $${d.price} USDC (tx: ${(d.txHash||'').slice(0,14)}...)`;
+        else if (t === 'transfer:payment-received')  logAction = `payment received: ${skillName} (tx: ${(d.txHash||'').slice(0,14)}...)`;
+        else if (t === 'transfer:payment-verified')  logAction = `payment verified block ${d.blockNumber} (tx: ${(d.txHash||'').slice(0,14)}...)`;
         else if (t === 'transfer:payment-failed')    logAction = `payment failed: ${d.reason}`;
         else if (t === 'transfer:skill-sent')        logAction = `skill sent: ${skillName}`;
         else if (t.includes('vault:stored')) {
