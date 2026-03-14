@@ -404,13 +404,24 @@ function renderReviews() {
   });
 }
 
+function linkifyTx(text) {
+  // Turn tx hashes (0x followed by 8+ hex chars, possibly truncated with ...) into BaseScan links
+  return text.replace(/\b(0x[0-9a-fA-F]{8,64})(\.\.\.)?/g, (match, hash, dots) => {
+    // If truncated, we can't link (incomplete hash). If full 66-char tx hash, link it.
+    if (hash.length === 66) return `<a href="https://basescan.org/tx/${hash}" target="_blank" style="color:inherit;text-decoration:underline">${hash.slice(0,14)}…</a>`;
+    // Truncated display — still link with what we have (won't resolve but shows intent)
+    return `<a href="https://basescan.org/tx/${hash}" target="_blank" style="color:inherit;text-decoration:underline">${match}</a>`;
+  });
+}
+
 function addLog(entry) {
   const p = $('logPanel');
   const row = document.createElement('div');
   row.className = `log-row ${entry.logType||entry.type||'info'} new`;
   const t = new Date(entry.time).toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
   const agent = entry.agent && entry.agent.startsWith('0x') ? nameOf(entry.agent) : entry.agent;
-  row.innerHTML = `<span class="log-t">${t}</span><span class="log-a">${esc(agent)}</span><span class="log-m">${esc(entry.action)}</span>`;
+  const msg = linkifyTx(esc(entry.action));
+  row.innerHTML = `<span class="log-t">${t}</span><span class="log-a">${esc(agent)}</span><span class="log-m">${msg}</span>`;
   p.prepend(row);
   setTimeout(() => row.classList.remove('new'), 500);
   while (p.children.length > 100) p.removeChild(p.lastChild);
