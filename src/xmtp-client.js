@@ -53,6 +53,7 @@ export class SkillCryptClient {
     this.env = opts.env || 'dev';
     this.client = null;
     this.vault = null;
+    this._listenContext = {};
     this.address = null;
   }
 
