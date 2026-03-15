@@ -3,7 +3,7 @@
  */
 
 export const DEFAULTS = {
-  oracleAddress: '0xCd160b0C2794B4bb90977Bbd27d77C068829F57E',
-  groupId: '38f1a05ad3207c9bda055675bd517a3e',
+  oracleAddress: '0xadef7069C11E355312eee0139569774942AD5E2F',
+  groupId: '4f9db472f6294db500c7ffd9c6b599dc',
   env: 'production'
 };
