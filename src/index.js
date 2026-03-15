@@ -3,7 +3,6 @@
  */
 
 export { deriveKey, encrypt, decrypt, hashContent, encryptForTransfer, decryptTransfer } from './crypto.js';
-export { SkillVault } from './vault.js';
 export { XMTPVault } from './xmtp-vault.js';
 export {
   MSG_TYPES,

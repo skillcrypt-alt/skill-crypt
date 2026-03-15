@@ -59,7 +59,7 @@ export class SkillCryptClient {
   /**
    * Connect to the XMTP network.
    *
-   * @param {SkillVault} [vault] - Local vault for handling incoming transfers
+   * @param {import('./xmtp-vault.js').XMTPVault} [vault] - XMTP vault for handling incoming transfers
    * @returns {SkillCryptClient}
    */
   async connect(vault) {

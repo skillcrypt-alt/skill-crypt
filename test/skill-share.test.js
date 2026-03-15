@@ -1,19 +1,33 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { rm } from 'node:fs/promises';
-import { SkillVault } from '../src/vault.js';
+import { hashContent } from '../src/crypto.js';
 import { SkillShare } from '../src/skill-share.js';
 
-const TEST_KEY = 'ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 const TEST_DIR = `/tmp/skillshare-test-${Date.now()}`;
+
+/** Minimal in-memory vault mock (same interface as XMTPVault) */
+function mockVault() {
+  const skills = {};
+  return {
+    manifest: { version: 2, skills },
+    async store(name, content, meta = {}) {
+      const id = hashContent(content);
+      skills[id] = { name, version: meta.version || '1.0.0', description: meta.description || '', tags: meta.tags || [], contentHash: id, size: content.length, _content: content };
+      return id;
+    },
+    async load(id) { if (!skills[id]) throw new Error('not found'); return skills[id]._content; },
+    list() { return Object.entries(skills).map(([id, m]) => ({ skillId: id, ...m })); },
+    find(q) { const lq = q.toLowerCase(); return this.list().filter(s => s.name.toLowerCase().includes(lq) || s.tags.some(t => t.toLowerCase().includes(lq)) || s.description.toLowerCase().includes(lq)); }
+  };
+}
 
 describe('SkillShare state management', () => {
   let vault;
   let share;
 
   before(async () => {
-    vault = new SkillVault(`${TEST_DIR}/vault`, TEST_KEY);
-    await vault.init();
+    vault = mockVault();
 
     await vault.store('web-scraper', '# Web Scraper\n\nScrape websites.', {
       description: 'Website scraping',

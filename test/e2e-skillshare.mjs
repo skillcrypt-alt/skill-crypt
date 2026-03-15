@@ -19,7 +19,7 @@
  * Usage: node test/e2e-skillshare.mjs [--loops N] [--env dev|production]
  */
 
-import { SkillVault } from '../src/vault.js';
+import { XMTPVault } from '../src/xmtp-vault.js';
 import { SkillCryptClient } from '../src/xmtp-client.js';
 import { SkillShare } from '../src/skill-share.js';
 import { parseMessage, handleMessage } from '../src/transfer.js';
@@ -144,23 +144,14 @@ async function runLoop(iteration) {
   await mkdir(dirA, { recursive: true });
   await mkdir(dirB, { recursive: true });
 
-  // Init vaults
-  log('Alice', 'initializing vault');
-  const vaultA = new SkillVault(join(dirA, 'vault'), WALLET_A.key);
-  await vaultA.init();
-
-  log('Bob', 'initializing vault');
-  const vaultB = new SkillVault(join(dirB, 'vault'), WALLET_B.key);
-  await vaultB.init();
-
-  // Connect to XMTP
+  // Connect to XMTP first (XMTPVault needs the client)
   log('Alice', `connecting to XMTP (${xmtpEnv})`);
   const clientA = new SkillCryptClient({
     privateKey: WALLET_A.key,
     dbDir: join(dirA, 'xmtp'),
     env: xmtpEnv
   });
-  await clientA.connect(vaultA);
+  await clientA.connect();
 
   log('Bob', `connecting to XMTP (${xmtpEnv})`);
   const clientB = new SkillCryptClient({
@@ -168,7 +159,18 @@ async function runLoop(iteration) {
     dbDir: join(dirB, 'xmtp'),
     env: xmtpEnv
   });
-  await clientB.connect(vaultB);
+  await clientB.connect();
+
+  // Init XMTP vaults (skills live in XMTP messages, not on disk)
+  log('Alice', 'initializing XMTP vault');
+  const vaultA = new XMTPVault({ client: clientA.client, privateKey: WALLET_A.key, dbDir: join(dirA, 'xmtp') });
+  await vaultA.init();
+  clientA.vault = vaultA;
+
+  log('Bob', 'initializing XMTP vault');
+  const vaultB = new XMTPVault({ client: clientB.client, privateKey: WALLET_B.key, dbDir: join(dirB, 'xmtp') });
+  await vaultB.init();
+  clientB.vault = vaultB;
 
   log('Alice', `address: ${clientA.getAddress()}`);
   log('Bob', `address: ${clientB.getAddress()}`);

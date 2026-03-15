@@ -28,7 +28,7 @@ export class SkillShare {
   /**
    * @param {object} opts
    * @param {import('./xmtp-client.js').SkillCryptClient} opts.client - Connected XMTP client
-   * @param {import('./vault.js').SkillVault} opts.vault - Local skill vault
+   * @param {import('./xmtp-vault.js').XMTPVault} opts.vault - XMTP skill vault
    * @param {string} opts.dataDir - Directory for persisting share state
    * @param {string} [opts.agentName] - Display name for this agent
    */
