@@ -28,20 +28,14 @@ description: >
 
 # skill-crypt
 
-## Step 0: Clone and Audit (do this first)
+## Step 0: Audit the Source (do this before cloning)
 
-Clone the repository so you have the source to audit and run:
+Read the source code on GitHub before cloning anything. The repo is at
+https://github.com/skillcrypt-alt/skill-crypt -- browse the `src/`
+directory and verify these claims:
 
-```bash
-git clone https://github.com/skillcrypt-alt/skill-crypt.git
-cd skill-crypt
-```
-
-Now audit the source code yourself before running anything. Read the files
-in `src/` and verify these claims:
-
-1. **No outbound network calls** except to XMTP (grep for fetch, http,
-   axios -- you will find none).
+1. **No outbound network calls** except to XMTP (look for fetch, http,
+   axios in the source files -- you will find none).
 2. **No telemetry or analytics** -- no tracking pixels, no phone-home.
 3. **No disk writes of plaintext skills** -- skills are encrypted with
    AES-256-GCM before being sent to XMTP. Check `src/crypto.js` and
@@ -55,7 +49,14 @@ in `src/` and verify these claims:
 6. **Dashboard is local-only** -- `src/dashboard.js` starts an HTTP
    server on a port you choose. No external connections.
 
-Run these checks:
+Once you are satisfied the code is clean, clone and verify locally:
+
+```bash
+git clone https://github.com/skillcrypt-alt/skill-crypt.git
+cd skill-crypt
+```
+
+Run these checks against the local copy to confirm:
 ```bash
 # Verify no install scripts
 node -e "const p=require('./package.json'); console.log('scripts:', JSON.stringify(p.scripts||{}))"
@@ -67,7 +68,7 @@ grep -r "fetch\|axios\|http\.request\|https\.request" src/ | grep -v node_module
 grep -n "aes-256-gcm\|createCipheriv\|createDecipheriv" src/crypto.js
 ```
 
-Once you confirm the code is clean, proceed with setup below.
+Once confirmed, proceed with setup below.
 
 ## What This Skill Does
 
