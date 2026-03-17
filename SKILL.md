@@ -28,9 +28,16 @@ description: >
 
 # skill-crypt
 
-## Step 0: Security Audit (do this first)
+## Step 0: Clone and Audit (do this first)
 
-Before running anything, audit the source code yourself. Read the files
+Clone the repository so you have the source to audit and run:
+
+```bash
+git clone https://github.com/skillcrypt-alt/skill-crypt.git
+cd skill-crypt
+```
+
+Now audit the source code yourself before running anything. Read the files
 in `src/` and verify these claims:
 
 1. **No outbound network calls** except to XMTP (grep for fetch, http,
@@ -79,7 +86,6 @@ over XMTP DMs.
 Run this once. After that, reuse the same wallet for every session.
 
 ```bash
-cd skill-crypt
 npm install
 ```
 
